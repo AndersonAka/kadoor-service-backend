@@ -1,0 +1,175 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+  MANAGER
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String?  // Optionnel pour les utilisateurs OAuth
+  firstName String?
+  lastName  String?
+  phone     String?
+  role      Role     @default(USER)
+  googleId  String?  @unique // ID Google pour OAuth
+  avatar    String?  // URL de l'avatar (Google profile picture)
+  provider  String?  @default("local") // "local" ou "google"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  bookings  Booking[]
+  reviews   Review[]
+  incidents Incident[]
+}
+
+model Vehicle {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  type        String   // Berline, SUV, Luxe, etc.
+  make        String?
+  model       String?
+  year        Int?
+  fuel        String?
+  transmission String?
+  seats       Int?
+  location    String?
+  pricePerDay Float
+  isAvailable Boolean  @default(true)
+  images      String[]
+  features    String[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  bookings    Booking[]
+  reviews     Review[]
+  incidents   Incident[]
+}
+
+model Apartment {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  type        String?  // Studio, T1, T2, T3, T4, Villa, etc.
+  address     String
+  city        String
+  pricePerNight Float
+  bedrooms    Int
+  bathrooms   Int
+  area        Float
+  images      String[]
+  features    String[]
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  bookings    Booking[]
+  reviews     Review[]
+  incidents   Incident[]
+}
+
+model Booking {
+  id        String   @id @default(uuid())
+  startDate DateTime
+  endDate   DateTime
+  totalPrice Float
+  status    String   @default("PENDING") // PENDING, CONFIRMED, CANCELLED, COMPLETED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  vehicleId String?
+  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  apartmentId String?
+  apartment   Apartment? @relation(fields: [apartmentId], references: [id])
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int
+  comment   String
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  vehicleId String?
+  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  apartmentId String?
+  apartment   Apartment? @relation(fields: [apartmentId], references: [id])
+}
+
+model HeroSlide {
+  id          Int      @id @default(autoincrement())
+  titleFr     String
+  titleEn     String
+  subtitleFr  String
+  subtitleEn  String
+  imageUrl    String
+  buttonText  String?
+  buttonLink  String?
+  order       Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Newsletter {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum IncidentType {
+  ACCIDENT
+  PANNE
+  SINISTRE
+  VOL
+  DOMMAGE
+  AUTRES
+}
+
+enum IncidentStatus {
+  PENDING
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model Incident {
+  id          String        @id @default(uuid())
+  type        IncidentType
+  title       String
+  description String
+  location    String?
+  date        DateTime?
+  firstName   String
+  lastName    String
+  email       String
+  phone       String?
+  status      IncidentStatus @default(PENDING)
+  userId      String?        // Optionnel : si l'utilisateur est connecté
+  user        User?          @relation(fields: [userId], references: [id])
+  vehicleId   String?        // Optionnel : si l'incident concerne un véhicule
+  vehicle     Vehicle?       @relation(fields: [vehicleId], references: [id])
+  apartmentId String?        // Optionnel : si l'incident concerne un appartement
+  apartment   Apartment?     @relation(fields: [apartmentId], references: [id])
+  images      String[]       // Photos de l'incident
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}

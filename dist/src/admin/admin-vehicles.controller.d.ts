@@ -1,0 +1,136 @@
+import { VehiclesService } from '../vehicles/vehicles.service';
+import { CreateVehicleDto } from '../vehicles/dto/create-vehicle.dto';
+import { UpdateVehicleDto } from '../vehicles/dto/update-vehicle.dto';
+import { AdminQueryDto } from './dto/admin-query.dto';
+export declare class AdminVehiclesController {
+    private readonly vehiclesService;
+    constructor(vehiclesService: VehiclesService);
+    findAll(query: AdminQueryDto): Promise<{
+        data: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            title: string;
+            description: string;
+            type: string;
+            make: string | null;
+            model: string | null;
+            year: number | null;
+            fuel: string | null;
+            transmission: string | null;
+            seats: number | null;
+            location: string | null;
+            pricePerDay: number;
+            isAvailable: boolean;
+            images: string[];
+            features: string[];
+        }[];
+        meta: {
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+        };
+    }>;
+    findOne(id: string): Promise<{
+        bookings: {
+            startDate: Date;
+            endDate: Date;
+            status: string;
+        }[];
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        title: string;
+        description: string;
+        type: string;
+        make: string | null;
+        model: string | null;
+        year: number | null;
+        fuel: string | null;
+        transmission: string | null;
+        seats: number | null;
+        location: string | null;
+        pricePerDay: number;
+        isAvailable: boolean;
+        images: string[];
+        features: string[];
+    }>;
+    create(createVehicleDto: CreateVehicleDto): import("@prisma/client").Prisma.Prisma__VehicleClient<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        title: string;
+        description: string;
+        type: string;
+        make: string | null;
+        model: string | null;
+        year: number | null;
+        fuel: string | null;
+        transmission: string | null;
+        seats: number | null;
+        location: string | null;
+        pricePerDay: number;
+        isAvailable: boolean;
+        images: string[];
+        features: string[];
+    }, never, import("@prisma/client/runtime/client").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
+    update(id: string, updateVehicleDto: UpdateVehicleDto): import("@prisma/client").Prisma.Prisma__VehicleClient<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        title: string;
+        description: string;
+        type: string;
+        make: string | null;
+        model: string | null;
+        year: number | null;
+        fuel: string | null;
+        transmission: string | null;
+        seats: number | null;
+        location: string | null;
+        pricePerDay: number;
+        isAvailable: boolean;
+        images: string[];
+        features: string[];
+    }, never, import("@prisma/client/runtime/client").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
+    remove(id: string): import("@prisma/client").Prisma.Prisma__VehicleClient<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        title: string;
+        description: string;
+        type: string;
+        make: string | null;
+        model: string | null;
+        year: number | null;
+        fuel: string | null;
+        transmission: string | null;
+        seats: number | null;
+        location: string | null;
+        pricePerDay: number;
+        isAvailable: boolean;
+        images: string[];
+        features: string[];
+    }, never, import("@prisma/client/runtime/client").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
+    uploadImages(id: string, files: Express.Multer.File[]): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        title: string;
+        description: string;
+        type: string;
+        make: string | null;
+        model: string | null;
+        year: number | null;
+        fuel: string | null;
+        transmission: string | null;
+        seats: number | null;
+        location: string | null;
+        pricePerDay: number;
+        isAvailable: boolean;
+        images: string[];
+        features: string[];
+    }>;
+}
