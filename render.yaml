@@ -5,7 +5,7 @@ services:
     runtime: node
     plan: free  # Changez pour 'starter' ou 'standard' en production
     region: frankfurt  # Régions disponibles: oregon, frankfurt, singapore, etc.
-    buildCommand: npm install && npm run build && npx prisma generate
+    buildCommand: npm install && npm run build
     startCommand: npm run start:prod
     envVars:
       # Base de données (Neon PostgreSQL)
