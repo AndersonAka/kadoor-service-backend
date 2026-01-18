@@ -1,0 +1,25 @@
+services:
+  # Service Web pour l'API NestJS
+  - type: web
+    name: kadoor-service-backend
+    runtime: node
+    plan: free  # Changez pour 'starter' ou 'standard' en production
+    region: frankfurt  # Régions disponibles: oregon, frankfurt, singapore, etc.
+    buildCommand: npm install && npm run build && npx prisma generate
+    startCommand: npm run start:prod
+    envVars:
+      # Base de données (Neon PostgreSQL)
+      - key: DATABASE_URL
+        sync: false  # À définir manuellement dans le dashboard Render
+      # JWT Secret
+      - key: JWT_SECRET
+        generateValue: true  # Génère automatiquement une clé aléatoire
+      # Node Environment
+      - key: NODE_ENV
+        value: production
+      # Port (géré automatiquement par Render)
+      - key: PORT
+        value: 10000
+    healthCheckPath: /
+    # Auto-deploy depuis la branche principale
+    branch: main  # Changez selon votre branche principale
