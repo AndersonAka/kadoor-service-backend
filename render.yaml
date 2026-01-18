@@ -20,6 +20,9 @@ services:
       # Port (géré automatiquement par Render)
       - key: PORT
         value: 10000
+      # Node.js Memory Options (pour éviter les erreurs de mémoire pendant le build)
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=2048
     healthCheckPath: /
     # Auto-deploy depuis la branche principale
     branch: main  # Changez selon votre branche principale
