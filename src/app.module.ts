@@ -15,6 +15,7 @@ import { AdminModule } from './admin/admin.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { NewsletterModule } from './newsletter/newsletter.module';
 import { IncidentsModule } from './incidents/incidents.module';
+import { TestimonialsModule } from './testimonials/testimonials.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { IncidentsModule } from './incidents/incidents.module';
     ReviewsModule,
     NewsletterModule,
     IncidentsModule,
+    TestimonialsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

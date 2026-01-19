@@ -135,6 +135,18 @@ model Newsletter {
   updatedAt DateTime @updatedAt
 }
 
+model Testimonial {
+  id          String   @id @default(uuid())
+  name        String
+  designation String   // Ex: "Entrepreneur - Douala", "Tourist - USA"
+  comment     String   // Le témoignage/commentaire
+  imageUrl    String?  // URL de l'image du client (optionnel)
+  isActive    Boolean  @default(true)
+  order       Int      @default(0) // Pour ordonner l'affichage
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 enum IncidentType {
   ACCIDENT
   PANNE

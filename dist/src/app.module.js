@@ -24,6 +24,7 @@ const admin_module_1 = require("./admin/admin.module");
 const reviews_module_1 = require("./reviews/reviews.module");
 const newsletter_module_1 = require("./newsletter/newsletter.module");
 const incidents_module_1 = require("./incidents/incidents.module");
+const testimonials_module_1 = require("./testimonials/testimonials.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -46,6 +47,7 @@ exports.AppModule = AppModule = __decorate([
             reviews_module_1.ReviewsModule,
             newsletter_module_1.NewsletterModule,
             incidents_module_1.IncidentsModule,
+            testimonials_module_1.TestimonialsModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [app_service_1.AppService],
