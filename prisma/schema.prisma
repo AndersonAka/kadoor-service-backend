@@ -130,14 +130,15 @@ model Review {
 }
 
 model HeroSlide {
-  id          Int      @id @default(autoincrement())
-  titleFr     String
-  titleEn     String
-  subtitleFr  String
-  subtitleEn  String
-  imageUrl    String
-  buttonText  String?
-  buttonLink  String?
+  id           Int      @id @default(autoincrement())
+  titleFr      String
+  titleEn      String
+  subtitleFr   String
+  subtitleEn   String
+  imageUrl     String
+  buttonTextFr String?
+  buttonTextEn String?
+  buttonLink   String?
   order       Int      @default(0)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
