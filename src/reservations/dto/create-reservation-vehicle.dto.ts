@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsDateString, IsString, IsOptional, IsNumber } from 'class-validator';
+import { IsNotEmpty, IsDateString, IsString, IsOptional, IsNumber, IsIn } from 'class-validator';
 
 export class CreateReservationVehicleDto {
   @IsNotEmpty()
@@ -12,6 +12,15 @@ export class CreateReservationVehicleDto {
   @IsNotEmpty()
   @IsDateString()
   endDate: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['SPONTANEE', 'DIFFEREE'])
+  reservationType?: string; // SPONTANEE = same day (6h min), DIFFEREE = future date
+
+  @IsOptional()
+  @IsString()
+  pickupTime?: string; // Heure de prise en charge souhaitée (HH:MM)
 
   @IsOptional()
   @IsString()

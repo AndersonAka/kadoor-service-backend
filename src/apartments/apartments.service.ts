@@ -129,11 +129,12 @@ export class ApartmentsService {
       return {
         available: false,
         reason: 'La date de fin doit être après la date de début',
+        bookedDates: [],
       };
     }
 
-    // Vérifier les réservations existantes
-    const conflictingBookings = await this.prisma.booking.findFirst({
+    // Récupérer toutes les réservations pour la période
+    const bookings = await this.prisma.booking.findMany({
       where: {
         apartmentId: id,
         status: {
@@ -141,35 +142,41 @@ export class ApartmentsService {
         },
         OR: [
           {
-            startDate: {
-              gte: start,
-              lte: end,
-            },
-          },
-          {
-            endDate: {
-              gte: start,
-              lte: end,
-            },
-          },
-          {
-            AND: [
-              { startDate: { lte: start } },
-              { endDate: { gte: end } },
-            ],
+            startDate: { lte: end },
+            endDate: { gte: start },
           },
         ],
       },
+      select: {
+        startDate: true,
+        endDate: true,
+      },
     });
 
-    const available = !conflictingBookings && apartment.isAvailable;
+    // Générer la liste des dates réservées
+    const bookedDates: string[] = [];
+    bookings.forEach((booking) => {
+      const bookingStart = new Date(booking.startDate);
+      const bookingEnd = new Date(booking.endDate);
+      const current = new Date(Math.max(bookingStart.getTime(), start.getTime()));
+      const lastDate = new Date(Math.min(bookingEnd.getTime(), end.getTime()));
+      
+      while (current <= lastDate) {
+        bookedDates.push(current.toISOString().split('T')[0]);
+        current.setDate(current.getDate() + 1);
+      }
+    });
+
+    // Vérifier s'il y a des conflits
+    const hasConflict = bookings.length > 0;
+    const available = !hasConflict && apartment.isAvailable;
 
     return {
       available,
       apartmentId: id,
       startDate,
       endDate,
-      conflictingBooking: conflictingBookings || null,
+      bookedDates,
     };
   }
 

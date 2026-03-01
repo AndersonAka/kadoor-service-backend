@@ -107,9 +107,10 @@ let ApartmentsService = class ApartmentsService {
             return {
                 available: false,
                 reason: 'La date de fin doit être après la date de début',
+                bookedDates: [],
             };
         }
-        const conflictingBookings = await this.prisma.booking.findFirst({
+        const bookings = await this.prisma.booking.findMany({
             where: {
                 apartmentId: id,
                 status: {
@@ -117,33 +118,35 @@ let ApartmentsService = class ApartmentsService {
                 },
                 OR: [
                     {
-                        startDate: {
-                            gte: start,
-                            lte: end,
-                        },
-                    },
-                    {
-                        endDate: {
-                            gte: start,
-                            lte: end,
-                        },
-                    },
-                    {
-                        AND: [
-                            { startDate: { lte: start } },
-                            { endDate: { gte: end } },
-                        ],
+                        startDate: { lte: end },
+                        endDate: { gte: start },
                     },
                 ],
             },
+            select: {
+                startDate: true,
+                endDate: true,
+            },
         });
-        const available = !conflictingBookings && apartment.isAvailable;
+        const bookedDates = [];
+        bookings.forEach((booking) => {
+            const bookingStart = new Date(booking.startDate);
+            const bookingEnd = new Date(booking.endDate);
+            const current = new Date(Math.max(bookingStart.getTime(), start.getTime()));
+            const lastDate = new Date(Math.min(bookingEnd.getTime(), end.getTime()));
+            while (current <= lastDate) {
+                bookedDates.push(current.toISOString().split('T')[0]);
+                current.setDate(current.getDate() + 1);
+            }
+        });
+        const hasConflict = bookings.length > 0;
+        const available = !hasConflict && apartment.isAvailable;
         return {
             available,
             apartmentId: id,
             startDate,
             endDate,
-            conflictingBooking: conflictingBookings || null,
+            bookedDates,
         };
     }
     update(id, updateApartmentDto) {

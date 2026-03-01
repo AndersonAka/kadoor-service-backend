@@ -16,6 +16,8 @@ import { ReviewsModule } from './reviews/reviews.module';
 import { NewsletterModule } from './newsletter/newsletter.module';
 import { IncidentsModule } from './incidents/incidents.module';
 import { TestimonialsModule } from './testimonials/testimonials.module';
+import { FavoritesModule } from './favorites/favorites.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -36,6 +38,8 @@ import { TestimonialsModule } from './testimonials/testimonials.module';
     NewsletterModule,
     IncidentsModule,
     TestimonialsModule,
+    FavoritesModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

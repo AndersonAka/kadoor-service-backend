@@ -129,11 +129,12 @@ export class VehiclesService {
       return {
         available: false,
         reason: 'La date de fin doit être après la date de début',
+        bookedDates: [],
       };
     }
 
-    // Vérifier les réservations existantes
-    const conflictingBookings = await this.prisma.booking.findFirst({
+    // Récupérer toutes les réservations pour la période
+    const bookings = await this.prisma.booking.findMany({
       where: {
         vehicleId: id,
         status: {
@@ -141,38 +142,41 @@ export class VehiclesService {
         },
         OR: [
           {
-            // Réservation commence pendant la période demandée
-            startDate: {
-              gte: start,
-              lte: end,
-            },
-          },
-          {
-            // Réservation se termine pendant la période demandée
-            endDate: {
-              gte: start,
-              lte: end,
-            },
-          },
-          {
-            // Réservation englobe la période demandée
-            AND: [
-              { startDate: { lte: start } },
-              { endDate: { gte: end } },
-            ],
+            startDate: { lte: end },
+            endDate: { gte: start },
           },
         ],
       },
+      select: {
+        startDate: true,
+        endDate: true,
+      },
     });
 
-    const available = !conflictingBookings && vehicle.isAvailable;
+    // Générer la liste des dates réservées
+    const bookedDates: string[] = [];
+    bookings.forEach((booking) => {
+      const bookingStart = new Date(booking.startDate);
+      const bookingEnd = new Date(booking.endDate);
+      const current = new Date(Math.max(bookingStart.getTime(), start.getTime()));
+      const lastDate = new Date(Math.min(bookingEnd.getTime(), end.getTime()));
+      
+      while (current <= lastDate) {
+        bookedDates.push(current.toISOString().split('T')[0]);
+        current.setDate(current.getDate() + 1);
+      }
+    });
+
+    // Vérifier s'il y a des conflits
+    const hasConflict = bookings.length > 0;
+    const available = !hasConflict && vehicle.isAvailable;
 
     return {
       available,
       vehicleId: id,
       startDate,
       endDate,
-      conflictingBooking: conflictingBookings || null,
+      bookedDates,
     };
   }
 

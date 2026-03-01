@@ -29,6 +29,7 @@ model User {
   bookings  Booking[]
   reviews   Review[]
   incidents Incident[]
+  favorites Favorite[]
 }
 
 model Vehicle {
@@ -53,6 +54,7 @@ model Vehicle {
   bookings    Booking[]
   reviews     Review[]
   incidents   Incident[]
+  favorites   Favorite[]
 }
 
 model Apartment {
@@ -75,6 +77,21 @@ model Apartment {
   bookings    Booking[]
   reviews     Review[]
   incidents   Incident[]
+  favorites   Favorite[]
+}
+
+model Favorite {
+  id          String     @id @default(uuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicleId   String?
+  vehicle     Vehicle?   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  apartmentId String?
+  apartment   Apartment? @relation(fields: [apartmentId], references: [id], onDelete: Cascade)
+  createdAt   DateTime   @default(now())
+
+  @@unique([userId, vehicleId])
+  @@unique([userId, apartmentId])
 }
 
 model Booking {

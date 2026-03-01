@@ -74,27 +74,16 @@ export declare class ApartmentsService {
     checkAvailability(id: string, startDate: string, endDate: string): Promise<{
         available: boolean;
         reason: string;
+        bookedDates: never[];
         apartmentId?: undefined;
         startDate?: undefined;
         endDate?: undefined;
-        conflictingBooking?: undefined;
     } | {
         available: boolean;
         apartmentId: string;
         startDate: string;
         endDate: string;
-        conflictingBooking: {
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            startDate: Date;
-            endDate: Date;
-            totalPrice: number;
-            status: string;
-            userId: string;
-            vehicleId: string | null;
-            apartmentId: string | null;
-        } | null;
+        bookedDates: string[];
         reason?: undefined;
     }>;
     update(id: string, updateApartmentDto: UpdateApartmentDto): Prisma.Prisma__ApartmentClient<{

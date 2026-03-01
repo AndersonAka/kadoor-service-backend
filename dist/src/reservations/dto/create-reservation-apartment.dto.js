@@ -15,6 +15,8 @@ class CreateReservationApartmentDto {
     apartmentId;
     startDate;
     endDate;
+    reservationType;
+    entryTime;
     numberOfGuests;
     specialRequests;
 }
@@ -34,6 +36,17 @@ __decorate([
     (0, class_validator_1.IsDateString)(),
     __metadata("design:type", String)
 ], CreateReservationApartmentDto.prototype, "endDate", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsIn)(['SPONTANEE', 'DIFFEREE']),
+    __metadata("design:type", String)
+], CreateReservationApartmentDto.prototype, "reservationType", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], CreateReservationApartmentDto.prototype, "entryTime", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsNumber)(),

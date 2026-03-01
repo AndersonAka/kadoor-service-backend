@@ -15,6 +15,8 @@ class CreateReservationVehicleDto {
     vehicleId;
     startDate;
     endDate;
+    reservationType;
+    pickupTime;
     pickupLocation;
     dropoffLocation;
     additionalDrivers;
@@ -36,6 +38,17 @@ __decorate([
     (0, class_validator_1.IsDateString)(),
     __metadata("design:type", String)
 ], CreateReservationVehicleDto.prototype, "endDate", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsIn)(['SPONTANEE', 'DIFFEREE']),
+    __metadata("design:type", String)
+], CreateReservationVehicleDto.prototype, "reservationType", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], CreateReservationVehicleDto.prototype, "pickupTime", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
