@@ -22,4 +22,11 @@ export declare class AuthService {
         access_token: string;
         user: any;
     }>;
+    changePassword(userId: string, currentPassword: string, newPassword: string): Promise<{
+        success: boolean;
+        message: string;
+    }>;
+    deactivateAccount(userId: string): Promise<{
+        success: boolean;
+    }>;
 }

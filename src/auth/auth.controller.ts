@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Get, Request, UnauthorizedException, Res, Query } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Get, Request, UnauthorizedException, Res, Query, Patch, BadRequestException } from '@nestjs/common';
 import type { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
@@ -123,5 +123,49 @@ export class AuthController {
       console.error('[AuthController] Google token login error:', error);
       throw new UnauthorizedException('Invalid Google token');
     }
+  }
+
+  // ==================== PROFILE MANAGEMENT ====================
+
+  @UseGuards(AuthGuard('jwt'))
+  @Patch('profile')
+  @ApiOperation({ summary: 'Mettre à jour le profil utilisateur' })
+  @ApiResponse({ status: 200, description: 'Profil mis à jour' })
+  async updateProfile(
+    @Request() req: any,
+    @Body() updateData: { firstName?: string; lastName?: string; phone?: string; address?: string },
+  ) {
+    const updatedUser = await this.usersService.update(req.user.id, updateData);
+    const { password, ...result } = updatedUser;
+    return result;
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('change-password')
+  @ApiOperation({ summary: 'Changer le mot de passe' })
+  @ApiResponse({ status: 200, description: 'Mot de passe changé' })
+  @ApiResponse({ status: 400, description: 'Mot de passe actuel incorrect' })
+  async changePassword(
+    @Request() req: any,
+    @Body() body: { currentPassword: string; newPassword: string },
+  ) {
+    const result = await this.authService.changePassword(
+      req.user.id,
+      body.currentPassword,
+      body.newPassword,
+    );
+    if (!result.success) {
+      throw new BadRequestException(result.message);
+    }
+    return { message: 'Password changed successfully' };
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('deactivate-account')
+  @ApiOperation({ summary: 'Désactiver le compte (soft delete)' })
+  @ApiResponse({ status: 200, description: 'Compte désactivé' })
+  async deactivateAccount(@Request() req: any) {
+    await this.authService.deactivateAccount(req.user.id);
+    return { message: 'Account deactivated successfully' };
   }
 }

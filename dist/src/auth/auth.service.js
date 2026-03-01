@@ -69,9 +69,13 @@ let AuthService = class AuthService {
             console.log(`[AuthService] Invalid password for user: ${email}`);
             return null;
         }
+        if (user.isActive === false) {
+            console.log(`[AuthService] Reactivating account for user: ${email}`);
+            await this.usersService.update(user.id, { isActive: true });
+        }
         const { password, ...result } = user;
         console.log(`[AuthService] User validated successfully: ${email}, role: ${user.role}`);
-        return result;
+        return { ...result, isActive: true };
     }
     async validateGoogleUser(googleUser) {
         console.log(`[AuthService] Validating Google user: ${googleUser.email}`);
@@ -114,6 +118,26 @@ let AuthService = class AuthService {
             throw new common_1.UnauthorizedException('No user from Google');
         }
         return this.login(user);
+    }
+    async changePassword(userId, currentPassword, newPassword) {
+        const user = await this.usersService.findByEmail((await this.usersService.findOne(userId))?.email || '');
+        if (!user) {
+            return { success: false, message: 'User not found' };
+        }
+        if (!user.password) {
+            return { success: false, message: 'Cannot change password for OAuth accounts' };
+        }
+        const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+        if (!isPasswordValid) {
+            return { success: false, message: 'Current password is incorrect' };
+        }
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        await this.usersService.update(userId, { password: hashedPassword });
+        return { success: true, message: 'Password changed successfully' };
+    }
+    async deactivateAccount(userId) {
+        await this.usersService.update(userId, { isActive: false });
+        return { success: true };
     }
 };
 exports.AuthService = AuthService;

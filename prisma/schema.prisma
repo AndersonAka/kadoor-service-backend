@@ -19,10 +19,12 @@ model User {
   firstName String?
   lastName  String?
   phone     String?
+  address   String?  // Lieu d'habitation de l'utilisateur
   role      Role     @default(USER)
   googleId  String?  @unique // ID Google pour OAuth
   avatar    String?  // URL de l'avatar (Google profile picture)
   provider  String?  @default("local") // "local" ou "google"
+  isActive  Boolean  @default(true) // Pour la désactivation de compte (soft delete)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   

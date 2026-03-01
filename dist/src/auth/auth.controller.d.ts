@@ -16,11 +16,11 @@ export declare class AuthController {
     register(createUserDto: CreateUserDto): Promise<{
         id: string;
         email: string;
+        googleId: string | null;
         firstName: string | null;
         lastName: string | null;
         phone: string | null;
         role: import("@prisma/client").$Enums.Role;
-        googleId: string | null;
         avatar: string | null;
         provider: string | null;
         createdAt: Date;
@@ -32,5 +32,32 @@ export declare class AuthController {
     googleTokenLogin(credential: string): Promise<{
         access_token: string;
         user: any;
+    }>;
+    updateProfile(req: any, updateData: {
+        firstName?: string;
+        lastName?: string;
+        phone?: string;
+        address?: string;
+    }): Promise<{
+        id: string;
+        email: string;
+        googleId: string | null;
+        firstName: string | null;
+        lastName: string | null;
+        phone: string | null;
+        role: import("@prisma/client").$Enums.Role;
+        avatar: string | null;
+        provider: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+    }>;
+    changePassword(req: any, body: {
+        currentPassword: string;
+        newPassword: string;
+    }): Promise<{
+        message: string;
+    }>;
+    deactivateAccount(req: any): Promise<{
+        message: string;
     }>;
 }

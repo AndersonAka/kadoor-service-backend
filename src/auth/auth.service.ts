@@ -37,10 +37,16 @@ export class AuthService {
       console.log(`[AuthService] Invalid password for user: ${email}`);
       return null;
     }
+
+    // Réactiver le compte si désactivé (l'utilisateur qui se reconnecte)
+    if (user.isActive === false) {
+      console.log(`[AuthService] Reactivating account for user: ${email}`);
+      await this.usersService.update(user.id, { isActive: true });
+    }
     
     const { password, ...result } = user;
     console.log(`[AuthService] User validated successfully: ${email}, role: ${user.role}`);
-    return result;
+    return { ...result, isActive: true };
   }
 
   /**
@@ -100,5 +106,43 @@ export class AuthService {
       throw new UnauthorizedException('No user from Google');
     }
     return this.login(user);
+  }
+
+  /**
+   * Change user password
+   */
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.usersService.findByEmail(
+      (await this.usersService.findOne(userId))?.email || ''
+    );
+    
+    if (!user) {
+      return { success: false, message: 'User not found' };
+    }
+
+    // Check if user has a password (OAuth users don't)
+    if (!user.password) {
+      return { success: false, message: 'Cannot change password for OAuth accounts' };
+    }
+
+    // Verify current password
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isPasswordValid) {
+      return { success: false, message: 'Current password is incorrect' };
+    }
+
+    // Hash and update new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await this.usersService.update(userId, { password: hashedPassword });
+
+    return { success: true, message: 'Password changed successfully' };
+  }
+
+  /**
+   * Deactivate user account (soft delete)
+   */
+  async deactivateAccount(userId: string) {
+    await this.usersService.update(userId, { isActive: false });
+    return { success: true };
   }
 }

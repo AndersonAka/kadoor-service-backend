@@ -101,6 +101,22 @@ let AuthController = class AuthController {
             throw new common_1.UnauthorizedException('Invalid Google token');
         }
     }
+    async updateProfile(req, updateData) {
+        const updatedUser = await this.usersService.update(req.user.id, updateData);
+        const { password, ...result } = updatedUser;
+        return result;
+    }
+    async changePassword(req, body) {
+        const result = await this.authService.changePassword(req.user.id, body.currentPassword, body.newPassword);
+        if (!result.success) {
+            throw new common_1.BadRequestException(result.message);
+        }
+        return { message: 'Password changed successfully' };
+    }
+    async deactivateAccount(req) {
+        await this.authService.deactivateAccount(req.user.id);
+        return { message: 'Account deactivated successfully' };
+    }
 };
 exports.AuthController = AuthController;
 __decorate([
@@ -160,6 +176,39 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "googleTokenLogin", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Patch)('profile'),
+    (0, swagger_1.ApiOperation)({ summary: 'Mettre à jour le profil utilisateur' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Profil mis à jour' }),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "updateProfile", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Post)('change-password'),
+    (0, swagger_1.ApiOperation)({ summary: 'Changer le mot de passe' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Mot de passe changé' }),
+    (0, swagger_1.ApiResponse)({ status: 400, description: 'Mot de passe actuel incorrect' }),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "changePassword", null);
+__decorate([
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Post)('deactivate-account'),
+    (0, swagger_1.ApiOperation)({ summary: 'Désactiver le compte (soft delete)' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Compte désactivé' }),
+    __param(0, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "deactivateAccount", null);
 exports.AuthController = AuthController = __decorate([
     (0, swagger_1.ApiTags)('auth'),
     (0, common_1.Controller)('auth'),
