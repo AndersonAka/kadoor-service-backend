@@ -33,10 +33,11 @@ export class ReservationsController {
     @Body() dto: CreateReservationVehicleDto,
     @Request() req: any,
   ) {
-    if (!req.user || !req.user.userId) {
+    // Support both 'id' (from full user object) and 'userId' (from JWT payload fallback)
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) {
       throw new UnauthorizedException('Utilisateur non authentifié');
     }
-    const userId = req.user.userId;
     return this.reservationsService.createVehicleReservation(userId, dto);
   }
 
@@ -52,10 +53,11 @@ export class ReservationsController {
     @Body() dto: CreateReservationApartmentDto,
     @Request() req: any,
   ) {
-    if (!req.user || !req.user.userId) {
+    // Support both 'id' (from full user object) and 'userId' (from JWT payload fallback)
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) {
       throw new UnauthorizedException('Utilisateur non authentifié');
     }
-    const userId = req.user.userId;
     return this.reservationsService.createApartmentReservation(userId, dto);
   }
 
