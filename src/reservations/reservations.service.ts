@@ -266,7 +266,7 @@ export class ReservationsService {
 
   private buildCallbackUrl(bookingId: string): string {
     const webAppUrl = this.configService.get<string>('WEB_APP_URL') || 'http://localhost:3000';
-    return `${webAppUrl}/fr/payment/callback?bookingId=${bookingId}`;
+    return `${webAppUrl}/payment/callback?bookingId=${bookingId}`;
   }
 
   /**

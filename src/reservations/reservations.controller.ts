@@ -83,12 +83,12 @@ export class ReservationsController {
   }
 
   @Get(':id')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Récupérer les détails d\'une réservation' })
   @ApiParam({ name: 'id', description: 'ID de la réservation' })
   @ApiResponse({ status: 200, description: 'Détails de la réservation retournés avec succès' })
   @ApiResponse({ status: 404, description: 'Réservation non trouvée' })
-  // @UseGuards(JwtAuthGuard)
-  // @ApiBearerAuth()
   findOne(@Param('id') id: string) {
     return this.reservationsService.findOne(id);
   }
