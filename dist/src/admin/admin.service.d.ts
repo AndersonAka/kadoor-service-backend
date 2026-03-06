@@ -41,11 +41,11 @@ export declare class AdminService {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            userId: string;
             startDate: Date;
             endDate: Date;
             totalPrice: number;
             status: string;
-            userId: string;
             vehicleId: string | null;
             apartmentId: string | null;
         })[];

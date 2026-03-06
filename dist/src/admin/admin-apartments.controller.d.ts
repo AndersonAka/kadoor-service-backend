@@ -8,6 +8,7 @@ export declare class AdminApartmentsController {
     findAll(query: AdminQueryDto): Promise<{
         data: {
             id: string;
+            address: string;
             createdAt: Date;
             updatedAt: Date;
             title: string;
@@ -16,7 +17,6 @@ export declare class AdminApartmentsController {
             isAvailable: boolean;
             images: string[];
             features: string[];
-            address: string;
             city: string;
             pricePerNight: number;
             bedrooms: number;
@@ -38,6 +38,7 @@ export declare class AdminApartmentsController {
         }[];
     } & {
         id: string;
+        address: string;
         createdAt: Date;
         updatedAt: Date;
         title: string;
@@ -46,7 +47,6 @@ export declare class AdminApartmentsController {
         isAvailable: boolean;
         images: string[];
         features: string[];
-        address: string;
         city: string;
         pricePerNight: number;
         bedrooms: number;
@@ -55,6 +55,7 @@ export declare class AdminApartmentsController {
     }>;
     create(createApartmentDto: CreateApartmentDto): import("@prisma/client").Prisma.Prisma__ApartmentClient<{
         id: string;
+        address: string;
         createdAt: Date;
         updatedAt: Date;
         title: string;
@@ -63,7 +64,6 @@ export declare class AdminApartmentsController {
         isAvailable: boolean;
         images: string[];
         features: string[];
-        address: string;
         city: string;
         pricePerNight: number;
         bedrooms: number;
@@ -72,6 +72,7 @@ export declare class AdminApartmentsController {
     }, never, import("@prisma/client/runtime/client").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     update(id: string, updateApartmentDto: UpdateApartmentDto): import("@prisma/client").Prisma.Prisma__ApartmentClient<{
         id: string;
+        address: string;
         createdAt: Date;
         updatedAt: Date;
         title: string;
@@ -80,7 +81,6 @@ export declare class AdminApartmentsController {
         isAvailable: boolean;
         images: string[];
         features: string[];
-        address: string;
         city: string;
         pricePerNight: number;
         bedrooms: number;
@@ -89,6 +89,7 @@ export declare class AdminApartmentsController {
     }, never, import("@prisma/client/runtime/client").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     remove(id: string): import("@prisma/client").Prisma.Prisma__ApartmentClient<{
         id: string;
+        address: string;
         createdAt: Date;
         updatedAt: Date;
         title: string;
@@ -97,7 +98,6 @@ export declare class AdminApartmentsController {
         isAvailable: boolean;
         images: string[];
         features: string[];
-        address: string;
         city: string;
         pricePerNight: number;
         bedrooms: number;
@@ -106,6 +106,7 @@ export declare class AdminApartmentsController {
     }, never, import("@prisma/client/runtime/client").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     uploadImages(id: string, files: Express.Multer.File[]): Promise<{
         id: string;
+        address: string;
         createdAt: Date;
         updatedAt: Date;
         title: string;
@@ -114,7 +115,6 @@ export declare class AdminApartmentsController {
         isAvailable: boolean;
         images: string[];
         features: string[];
-        address: string;
         city: string;
         pricePerNight: number;
         bedrooms: number;

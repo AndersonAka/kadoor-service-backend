@@ -46,11 +46,11 @@ export declare class AdminClientsController {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            userId: string;
             startDate: Date;
             endDate: Date;
             totalPrice: number;
             status: string;
-            userId: string;
             vehicleId: string | null;
             apartmentId: string | null;
         })[];
@@ -78,10 +78,12 @@ export declare class AdminClientsController {
         firstName: string | null;
         lastName: string | null;
         phone: string | null;
+        address: string | null;
         role: import("@prisma/client").$Enums.Role;
         googleId: string | null;
         avatar: string | null;
         provider: string | null;
+        isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
     }>;
@@ -102,11 +104,11 @@ export declare class AdminClientsController {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            userId: string;
             startDate: Date;
             endDate: Date;
             totalPrice: number;
             status: string;
-            userId: string;
             vehicleId: string | null;
             apartmentId: string | null;
         })[];

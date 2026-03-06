@@ -35,11 +35,11 @@ export declare class ReservationsController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        userId: string;
         startDate: Date;
         endDate: Date;
         totalPrice: number;
         status: string;
-        userId: string;
         vehicleId: string | null;
         apartmentId: string | null;
     }>;
@@ -53,6 +53,7 @@ export declare class ReservationsController {
         };
         apartment: {
             id: string;
+            address: string;
             createdAt: Date;
             updatedAt: Date;
             title: string;
@@ -61,7 +62,6 @@ export declare class ReservationsController {
             isAvailable: boolean;
             images: string[];
             features: string[];
-            address: string;
             city: string;
             pricePerNight: number;
             bedrooms: number;
@@ -72,11 +72,11 @@ export declare class ReservationsController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        userId: string;
         startDate: Date;
         endDate: Date;
         totalPrice: number;
         status: string;
-        userId: string;
         vehicleId: string | null;
         apartmentId: string | null;
     }>;
@@ -109,6 +109,7 @@ export declare class ReservationsController {
         } | null;
         apartment: {
             id: string;
+            address: string;
             createdAt: Date;
             updatedAt: Date;
             title: string;
@@ -117,7 +118,6 @@ export declare class ReservationsController {
             isAvailable: boolean;
             images: string[];
             features: string[];
-            address: string;
             city: string;
             pricePerNight: number;
             bedrooms: number;
@@ -128,11 +128,11 @@ export declare class ReservationsController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        userId: string;
         startDate: Date;
         endDate: Date;
         totalPrice: number;
         status: string;
-        userId: string;
         vehicleId: string | null;
         apartmentId: string | null;
     })[]>;
@@ -165,6 +165,7 @@ export declare class ReservationsController {
         } | null;
         apartment: {
             id: string;
+            address: string;
             createdAt: Date;
             updatedAt: Date;
             title: string;
@@ -173,7 +174,6 @@ export declare class ReservationsController {
             isAvailable: boolean;
             images: string[];
             features: string[];
-            address: string;
             city: string;
             pricePerNight: number;
             bedrooms: number;
@@ -184,11 +184,11 @@ export declare class ReservationsController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        userId: string;
         startDate: Date;
         endDate: Date;
         totalPrice: number;
         status: string;
-        userId: string;
         vehicleId: string | null;
         apartmentId: string | null;
     }>;
@@ -196,11 +196,11 @@ export declare class ReservationsController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        userId: string;
         startDate: Date;
         endDate: Date;
         totalPrice: number;
         status: string;
-        userId: string;
         vehicleId: string | null;
         apartmentId: string | null;
     }>;
@@ -208,11 +208,11 @@ export declare class ReservationsController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        userId: string;
         startDate: Date;
         endDate: Date;
         totalPrice: number;
         status: string;
-        userId: string;
         vehicleId: string | null;
         apartmentId: string | null;
     }>;

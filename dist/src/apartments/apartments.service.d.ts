@@ -8,6 +8,7 @@ export declare class ApartmentsService {
     constructor(prisma: PrismaService);
     create(createApartmentDto: CreateApartmentDto): Prisma.Prisma__ApartmentClient<{
         id: string;
+        address: string;
         createdAt: Date;
         updatedAt: Date;
         title: string;
@@ -16,7 +17,6 @@ export declare class ApartmentsService {
         isAvailable: boolean;
         images: string[];
         features: string[];
-        address: string;
         city: string;
         pricePerNight: number;
         bedrooms: number;
@@ -26,6 +26,7 @@ export declare class ApartmentsService {
     findAll(query: QueryApartmentsDto): Promise<{
         data: {
             id: string;
+            address: string;
             createdAt: Date;
             updatedAt: Date;
             title: string;
@@ -34,7 +35,6 @@ export declare class ApartmentsService {
             isAvailable: boolean;
             images: string[];
             features: string[];
-            address: string;
             city: string;
             pricePerNight: number;
             bedrooms: number;
@@ -56,6 +56,7 @@ export declare class ApartmentsService {
         }[];
     } & {
         id: string;
+        address: string;
         createdAt: Date;
         updatedAt: Date;
         title: string;
@@ -64,7 +65,6 @@ export declare class ApartmentsService {
         isAvailable: boolean;
         images: string[];
         features: string[];
-        address: string;
         city: string;
         pricePerNight: number;
         bedrooms: number;
@@ -88,6 +88,7 @@ export declare class ApartmentsService {
     }>;
     update(id: string, updateApartmentDto: UpdateApartmentDto): Prisma.Prisma__ApartmentClient<{
         id: string;
+        address: string;
         createdAt: Date;
         updatedAt: Date;
         title: string;
@@ -96,7 +97,6 @@ export declare class ApartmentsService {
         isAvailable: boolean;
         images: string[];
         features: string[];
-        address: string;
         city: string;
         pricePerNight: number;
         bedrooms: number;
@@ -105,6 +105,7 @@ export declare class ApartmentsService {
     }, never, import("@prisma/client/runtime/client").DefaultArgs, Prisma.PrismaClientOptions>;
     remove(id: string): Prisma.Prisma__ApartmentClient<{
         id: string;
+        address: string;
         createdAt: Date;
         updatedAt: Date;
         title: string;
@@ -113,7 +114,6 @@ export declare class ApartmentsService {
         isAvailable: boolean;
         images: string[];
         features: string[];
-        address: string;
         city: string;
         pricePerNight: number;
         bedrooms: number;

@@ -16,13 +16,15 @@ export declare class AuthController {
     register(createUserDto: CreateUserDto): Promise<{
         id: string;
         email: string;
-        googleId: string | null;
         firstName: string | null;
         lastName: string | null;
         phone: string | null;
+        address: string | null;
         role: import("@prisma/client").$Enums.Role;
+        googleId: string | null;
         avatar: string | null;
         provider: string | null;
+        isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
     }>;
@@ -41,13 +43,15 @@ export declare class AuthController {
     }): Promise<{
         id: string;
         email: string;
-        googleId: string | null;
         firstName: string | null;
         lastName: string | null;
         phone: string | null;
+        address: string | null;
         role: import("@prisma/client").$Enums.Role;
+        googleId: string | null;
         avatar: string | null;
         provider: string | null;
+        isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
     }>;

@@ -32,6 +32,7 @@ export declare class AdminReservationsController {
         } | null;
         apartment: {
             id: string;
+            address: string;
             createdAt: Date;
             updatedAt: Date;
             title: string;
@@ -40,7 +41,6 @@ export declare class AdminReservationsController {
             isAvailable: boolean;
             images: string[];
             features: string[];
-            address: string;
             city: string;
             pricePerNight: number;
             bedrooms: number;
@@ -51,11 +51,11 @@ export declare class AdminReservationsController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        userId: string;
         startDate: Date;
         endDate: Date;
         totalPrice: number;
         status: string;
-        userId: string;
         vehicleId: string | null;
         apartmentId: string | null;
     })[]>;
@@ -88,6 +88,7 @@ export declare class AdminReservationsController {
         } | null;
         apartment: {
             id: string;
+            address: string;
             createdAt: Date;
             updatedAt: Date;
             title: string;
@@ -96,7 +97,6 @@ export declare class AdminReservationsController {
             isAvailable: boolean;
             images: string[];
             features: string[];
-            address: string;
             city: string;
             pricePerNight: number;
             bedrooms: number;
@@ -107,11 +107,11 @@ export declare class AdminReservationsController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        userId: string;
         startDate: Date;
         endDate: Date;
         totalPrice: number;
         status: string;
-        userId: string;
         vehicleId: string | null;
         apartmentId: string | null;
     }>;
@@ -119,11 +119,11 @@ export declare class AdminReservationsController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        userId: string;
         startDate: Date;
         endDate: Date;
         totalPrice: number;
         status: string;
-        userId: string;
         vehicleId: string | null;
         apartmentId: string | null;
     }>;
@@ -131,11 +131,11 @@ export declare class AdminReservationsController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        userId: string;
         startDate: Date;
         endDate: Date;
         totalPrice: number;
         status: string;
-        userId: string;
         vehicleId: string | null;
         apartmentId: string | null;
     }>;

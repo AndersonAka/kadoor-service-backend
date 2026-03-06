@@ -6,6 +6,7 @@ export declare class HeroController {
     constructor(heroService: HeroService);
     create(createHeroDto: CreateHeroDto): import("@prisma/client").Prisma.Prisma__HeroSlideClient<{
         id: number;
+        isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
         titleFr: string;
@@ -13,13 +14,14 @@ export declare class HeroController {
         subtitleFr: string;
         subtitleEn: string;
         imageUrl: string;
-        buttonText: string | null;
+        buttonTextFr: string | null;
+        buttonTextEn: string | null;
         buttonLink: string | null;
         order: number;
-        isActive: boolean;
     }, never, import("@prisma/client/runtime/client").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     findAll(): import("@prisma/client").Prisma.PrismaPromise<{
         id: number;
+        isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
         titleFr: string;
@@ -27,13 +29,14 @@ export declare class HeroController {
         subtitleFr: string;
         subtitleEn: string;
         imageUrl: string;
-        buttonText: string | null;
+        buttonTextFr: string | null;
+        buttonTextEn: string | null;
         buttonLink: string | null;
         order: number;
-        isActive: boolean;
     }[]>;
     findOne(id: string): import("@prisma/client").Prisma.Prisma__HeroSlideClient<{
         id: number;
+        isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
         titleFr: string;
@@ -41,13 +44,14 @@ export declare class HeroController {
         subtitleFr: string;
         subtitleEn: string;
         imageUrl: string;
-        buttonText: string | null;
+        buttonTextFr: string | null;
+        buttonTextEn: string | null;
         buttonLink: string | null;
         order: number;
-        isActive: boolean;
     } | null, null, import("@prisma/client/runtime/client").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     update(id: string, updateHeroDto: UpdateHeroDto): import("@prisma/client").Prisma.Prisma__HeroSlideClient<{
         id: number;
+        isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
         titleFr: string;
@@ -55,13 +59,14 @@ export declare class HeroController {
         subtitleFr: string;
         subtitleEn: string;
         imageUrl: string;
-        buttonText: string | null;
+        buttonTextFr: string | null;
+        buttonTextEn: string | null;
         buttonLink: string | null;
         order: number;
-        isActive: boolean;
     }, never, import("@prisma/client/runtime/client").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
     remove(id: string): import("@prisma/client").Prisma.Prisma__HeroSlideClient<{
         id: number;
+        isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
         titleFr: string;
@@ -69,9 +74,9 @@ export declare class HeroController {
         subtitleFr: string;
         subtitleEn: string;
         imageUrl: string;
-        buttonText: string | null;
+        buttonTextFr: string | null;
+        buttonTextEn: string | null;
         buttonLink: string | null;
         order: number;
-        isActive: boolean;
     }, never, import("@prisma/client/runtime/client").DefaultArgs, import("@prisma/client").Prisma.PrismaClientOptions>;
 }

@@ -6,22 +6,22 @@ export declare class NewsletterController {
     subscribe(subscribeDto: SubscribeNewsletterDto): Promise<{
         id: string;
         email: string;
+        isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
-        isActive: boolean;
     }>;
     unsubscribe(email: string): Promise<{
         id: string;
         email: string;
+        isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
-        isActive: boolean;
     }>;
     findAll(): Promise<{
         id: string;
         email: string;
+        isActive: boolean;
         createdAt: Date;
         updatedAt: Date;
-        isActive: boolean;
     }[]>;
 }
