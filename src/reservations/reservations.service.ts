@@ -1,10 +1,13 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReservationVehicleDto } from './dto/create-reservation-vehicle.dto';
 import { CreateReservationApartmentDto } from './dto/create-reservation-apartment.dto';
 import { VehiclesService } from '../vehicles/vehicles.service';
 import { ApartmentsService } from '../apartments/apartments.service';
 import { EmailService } from '../email/email.service';
+import { PaystackService } from './paystack.service';
+import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class ReservationsService {
@@ -13,6 +16,8 @@ export class ReservationsService {
     private vehiclesService: VehiclesService,
     private apartmentsService: ApartmentsService,
     private emailService: EmailService,
+    private paystackService: PaystackService,
+    private configService: ConfigService,
   ) {}
 
   /**
@@ -255,5 +260,195 @@ export class ReservationsService {
    */
   async cancel(id: string) {
     return this.updateStatus(id, 'CANCELLED');
+  }
+
+  // ─── Paystack Payment Methods ──────────────────────────────────────────
+
+  private buildCallbackUrl(bookingId: string): string {
+    const webAppUrl = this.configService.get<string>('WEB_APP_URL') || 'http://localhost:3000';
+    return `${webAppUrl}/fr/payment/callback?bookingId=${bookingId}`;
+  }
+
+  /**
+   * Crée une réservation de véhicule PENDING puis initie le paiement Paystack.
+   * Retourne { booking, paymentUrl }
+   */
+  async initiateVehiclePayment(
+    userId: string,
+    userEmail: string,
+    dto: CreateReservationVehicleDto,
+  ) {
+    const { vehicleId, startDate, endDate } = dto;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (start >= end) throw new BadRequestException('La date de fin doit être après la date de début');
+    if (start < new Date()) throw new BadRequestException('La date de début ne peut pas être dans le passé');
+
+    const availability = await this.vehiclesService.checkAvailability(vehicleId, startDate, endDate);
+    if (!availability.available) {
+      throw new ConflictException(`Le véhicule n'est pas disponible. ${availability.reason || ''}`);
+    }
+
+    const vehicle = await this.vehiclesService.findOne(vehicleId);
+    if (!vehicle) throw new NotFoundException('Véhicule non trouvé');
+
+    const days = this.calculateDays(start, end);
+    const totalPrice = vehicle.pricePerDay * days;
+    const paystackReference = uuidv4();
+
+    const booking = await this.prisma.booking.create({
+      data: {
+        userId,
+        vehicleId,
+        startDate: start,
+        endDate: end,
+        totalPrice,
+        status: 'PENDING',
+        paystackReference,
+      },
+      include: {
+        vehicle: true,
+        user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } },
+      },
+    });
+
+    const callbackUrl = this.buildCallbackUrl(booking.id);
+    const result = await this.paystackService.initializeTransaction({
+      email: userEmail,
+      amount: totalPrice,
+      reference: paystackReference,
+      callback_url: callbackUrl,
+      metadata: { bookingId: booking.id, type: 'vehicle', vehicleId },
+    });
+
+    return { booking, paymentUrl: result.authorization_url };
+  }
+
+  /**
+   * Crée une réservation d'appartement PENDING puis initie le paiement Paystack.
+   * Retourne { booking, paymentUrl }
+   */
+  async initiateApartmentPayment(
+    userId: string,
+    userEmail: string,
+    dto: CreateReservationApartmentDto,
+  ) {
+    const { apartmentId, startDate, endDate } = dto;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (start >= end) throw new BadRequestException('La date de fin doit être après la date de début');
+    if (start < new Date()) throw new BadRequestException('La date de début ne peut pas être dans le passé');
+
+    const availability = await this.apartmentsService.checkAvailability(apartmentId, startDate, endDate);
+    if (!availability.available) {
+      throw new ConflictException(`L'appartement n'est pas disponible. ${availability.reason || ''}`);
+    }
+
+    const apartment = await this.apartmentsService.findOne(apartmentId);
+    if (!apartment) throw new NotFoundException('Appartement non trouvé');
+
+    const days = this.calculateDays(start, end);
+    const totalPrice = apartment.pricePerNight * days;
+    const paystackReference = uuidv4();
+
+    const booking = await this.prisma.booking.create({
+      data: {
+        userId,
+        apartmentId,
+        startDate: start,
+        endDate: end,
+        totalPrice,
+        status: 'PENDING',
+        paystackReference,
+      },
+      include: {
+        apartment: true,
+        user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } },
+      },
+    });
+
+    const callbackUrl = this.buildCallbackUrl(booking.id);
+    const result = await this.paystackService.initializeTransaction({
+      email: userEmail,
+      amount: totalPrice,
+      reference: paystackReference,
+      callback_url: callbackUrl,
+      metadata: { bookingId: booking.id, type: 'apartment', apartmentId },
+    });
+
+    return { booking, paymentUrl: result.authorization_url };
+  }
+
+  /**
+   * Vérifie le paiement Paystack par référence et confirme la réservation.
+   */
+  async verifyPayment(bookingId: string) {
+    const booking = await this.prisma.booking.findUnique({ where: { id: bookingId } });
+    if (!booking) throw new NotFoundException('Réservation non trouvée');
+
+    if (booking.status === 'CONFIRMED') {
+      return { booking, status: 'success', message: 'Paiement déjà confirmé' };
+    }
+
+    if (!booking.paystackReference) {
+      throw new BadRequestException('Aucune référence de paiement associée');
+    }
+
+    const verification = await this.paystackService.verifyTransaction(booking.paystackReference);
+
+    if (verification.status === 'success') {
+      const confirmed = await this.prisma.booking.update({
+        where: { id: bookingId },
+        data: { status: 'CONFIRMED' },
+        include: {
+          vehicle: true,
+          apartment: true,
+          user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } },
+        },
+      });
+
+      this.emailService.sendReservationConfirmation(confirmed, confirmed.user.email).catch(
+        (err) => console.error('Erreur email confirmation:', err),
+      );
+
+      return { booking: confirmed, status: 'success', paystackStatus: verification.status };
+    }
+
+    if (verification.status === 'failed' || verification.status === 'abandoned') {
+      await this.prisma.booking.update({ where: { id: bookingId }, data: { status: 'CANCELLED' } });
+      return { booking, status: 'failed', paystackStatus: verification.status };
+    }
+
+    return { booking, status: 'pending', paystackStatus: verification.status };
+  }
+
+  /**
+   * Traite le webhook Paystack (charge.success / charge.failed)
+   */
+  async handleWebhook(signature: string, rawBody: string, body: any) {
+    const isValid = this.paystackService.validateWebhookSignature(signature, rawBody);
+    if (!isValid) return { status: 'error', message: 'Invalid signature' };
+
+    if (body.event === 'charge.success' || body.event === 'charge.failed') {
+      const reference = body.data?.reference;
+      if (!reference) return { status: 'error', message: 'No reference' };
+
+      const booking = await this.prisma.booking.findFirst({ where: { paystackReference: reference } });
+      if (!booking) return { status: 'ok', message: 'Booking not found' };
+
+      if (booking.status === 'CONFIRMED' || booking.status === 'CANCELLED') {
+        return { status: 'ok', message: 'Already processed' };
+      }
+
+      if (body.event === 'charge.success') {
+        await this.prisma.booking.update({ where: { id: booking.id }, data: { status: 'CONFIRMED' } });
+      } else {
+        await this.prisma.booking.update({ where: { id: booking.id }, data: { status: 'CANCELLED' } });
+      }
+    }
+
+    return { status: 'ok' };
   }
 }
