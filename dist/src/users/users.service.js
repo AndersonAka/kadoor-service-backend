@@ -45,11 +45,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.UsersService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
+const email_service_1 = require("../email/email.service");
 const bcrypt = __importStar(require("bcrypt"));
 let UsersService = class UsersService {
     prisma;
-    constructor(prisma) {
+    emailService;
+    constructor(prisma, emailService) {
         this.prisma = prisma;
+        this.emailService = emailService;
     }
     async create(createUserDto) {
         const existingUser = await this.prisma.user.findUnique({
@@ -67,6 +70,9 @@ let UsersService = class UsersService {
             },
         });
         const { password, ...result } = user;
+        this.emailService
+            .sendWelcomeEmail(result.email, result.firstName || '')
+            .catch((err) => console.error('[UsersService] Welcome email error:', err));
         return result;
     }
     async createGoogleUser(googleUserData) {
@@ -82,6 +88,9 @@ let UsersService = class UsersService {
             },
         });
         console.log(`[UsersService] Created Google user: ${user.email}, id: ${user.id}`);
+        this.emailService
+            .sendWelcomeEmail(user.email, user.firstName || '')
+            .catch((err) => console.error('[UsersService] Welcome email (Google) error:', err));
         return user;
     }
     async linkGoogleAccount(userId, googleId, avatar) {
@@ -144,6 +153,7 @@ let UsersService = class UsersService {
 exports.UsersService = UsersService;
 exports.UsersService = UsersService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        email_service_1.EmailService])
 ], UsersService);
 //# sourceMappingURL=users.service.js.map

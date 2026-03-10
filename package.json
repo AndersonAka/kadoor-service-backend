@@ -35,6 +35,7 @@
     "@nestjs/platform-express": "^11.1.11",
     "@nestjs/swagger": "^11.2.4",
     "@nestjs/typeorm": "^11.0.0",
+    "@onesignal/node-onesignal": "^5.4.0-beta1",
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0",
     "@types/multer": "^2.0.0",

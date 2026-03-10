@@ -1,6 +1,7 @@
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 export interface GoogleUserData {
     googleId: string;
     email: string;
@@ -11,7 +12,8 @@ export interface GoogleUserData {
 }
 export declare class UsersService {
     private prisma;
-    constructor(prisma: PrismaService);
+    private emailService;
+    constructor(prisma: PrismaService, emailService: EmailService);
     create(createUserDto: CreateUserDto): Promise<{
         id: string;
         email: string;

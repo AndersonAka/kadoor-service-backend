@@ -41,11 +41,12 @@ export declare class AdminService {
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            userId: string;
             startDate: Date;
             endDate: Date;
             totalPrice: number;
             status: string;
+            paystackReference: string | null;
+            userId: string;
             vehicleId: string | null;
             apartmentId: string | null;
         })[];
@@ -74,7 +75,7 @@ export declare class AdminService {
     private getTopVehicles;
     private getTopApartments;
     getChartData(period?: 'day' | 'week' | 'month' | 'year'): Promise<{
-        period: "year" | "week" | "day" | "month";
+        period: "year" | "month" | "day" | "week";
         data: {
             revenue: number;
             count: number;

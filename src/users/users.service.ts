@@ -2,6 +2,7 @@ import { Injectable, ConflictException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import * as bcrypt from 'bcrypt';
 
 export interface GoogleUserData {
@@ -15,7 +16,10 @@ export interface GoogleUserData {
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private emailService: EmailService,
+  ) {}
 
   async create(createUserDto: CreateUserDto) {
     const existingUser = await this.prisma.user.findUnique({
@@ -37,6 +41,11 @@ export class UsersService {
     });
 
     const { password, ...result } = user;
+
+    this.emailService
+      .sendWelcomeEmail(result.email, result.firstName || '')
+      .catch((err) => console.error('[UsersService] Welcome email error:', err));
+
     return result;
   }
 
@@ -57,6 +66,11 @@ export class UsersService {
     });
 
     console.log(`[UsersService] Created Google user: ${user.email}, id: ${user.id}`);
+
+    this.emailService
+      .sendWelcomeEmail(user.email, user.firstName || '')
+      .catch((err) => console.error('[UsersService] Welcome email (Google) error:', err));
+
     return user;
   }
 

@@ -1,38 +1,32 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { OneSignalService, EmailPayload, PushPayload } from './onesignal.service';
+import { ConfigService } from '@nestjs/config';
+import { OneSignalService } from './onesignal.service';
 import { PrismaService } from '../prisma/prisma.service';
 
-export enum EmailTemplate {
-  RESERVATION_CONFIRMATION = 'reservation_confirmation',
-  RESERVATION_CANCELLED = 'reservation_cancelled',
-  RESERVATION_REMINDER = 'reservation_reminder',
-  WELCOME = 'welcome',
-  PASSWORD_RESET = 'password_reset',
-  PAYMENT_RECEIPT = 'payment_receipt',
-  NEWSLETTER = 'newsletter',
-}
-
 export enum NotificationType {
-  RESERVATION_CREATED = 'reservation_created',
   RESERVATION_CONFIRMED = 'reservation_confirmed',
   RESERVATION_CANCELLED = 'reservation_cancelled',
-  RESERVATION_REMINDER = 'reservation_reminder',
   PAYMENT_SUCCESS = 'payment_success',
   NEW_MESSAGE = 'new_message',
-  PROMO = 'promo',
 }
 
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
+  private readonly fromName: string;
+  private readonly fromAddress: string;
 
   constructor(
-    private oneSignalService: OneSignalService,
-    private prisma: PrismaService,
-  ) {}
+    private readonly oneSignalService: OneSignalService,
+    private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
+    this.fromName = this.configService.get<string>('EMAIL_FROM_NAME') || 'KADOOR SERVICE';
+    this.fromAddress = this.configService.get<string>('EMAIL_FROM_ADDRESS') || 'no-reply@kadoorservice.com';
+  }
 
   /**
-   * Send reservation confirmation email
+   * Send reservation confirmation (email + push)
    */
   async sendReservationConfirmation(
     userId: string,
@@ -55,8 +49,9 @@ export class NotificationsService {
       const startDate = new Date(booking.startDate).toLocaleDateString('fr-FR');
       const endDate = new Date(booking.endDate).toLocaleDateString('fr-FR');
 
-      const emailPayload: EmailPayload = {
-        to: user.email,
+      // Send email
+      await this.oneSignalService.sendEmail({
+        includeEmailTokens: [user.email],
         subject: `Confirmation de votre réservation #${reservationId.slice(-8)}`,
         body: this.generateReservationConfirmationEmail({
           userName: user.firstName || 'Client',
@@ -67,20 +62,20 @@ export class NotificationsService {
           totalPrice: booking.totalPrice,
           bookingRef: reservationId.slice(-8).toUpperCase(),
         }),
-        data: { reservationId, itemType },
-      };
+        fromName: this.fromName,
+        fromAddress: this.fromAddress,
+        includeUnsubscribed: true,
+      });
 
-      const result = await this.oneSignalService.sendEmail(emailPayload);
-      
-      // Also send push notification
+      // Send push notification
       await this.oneSignalService.sendPush({
-        userId,
-        title: 'Réservation confirmée',
-        message: `Votre réservation pour ${item?.title} a été confirmée.`,
+        includeAliases: { external_id: [userId] },
+        contents: { fr: `Votre réservation pour ${item?.title} a été confirmée.`, en: `Your reservation for ${item?.title} has been confirmed.` },
+        headings: { fr: 'Réservation confirmée', en: 'Reservation confirmed' },
         data: { reservationId, type: NotificationType.RESERVATION_CONFIRMED },
       });
 
-      return result.success;
+      return true;
     } catch (error) {
       this.logger.error('Failed to send reservation confirmation', error);
       return false;
@@ -102,17 +97,20 @@ export class NotificationsService {
 
       const item = booking.vehicle || booking.apartment;
 
-      const result = await this.oneSignalService.sendEmail({
-        to: user.email,
+      await this.oneSignalService.sendEmail({
+        includeEmailTokens: [user.email],
         subject: `Annulation de réservation #${reservationId.slice(-8)}`,
         body: this.generateCancellationEmail({
           userName: user.firstName || 'Client',
           itemTitle: item?.title || 'Service',
           bookingRef: reservationId.slice(-8).toUpperCase(),
         }),
+        fromName: this.fromName,
+        fromAddress: this.fromAddress,
+        includeUnsubscribed: true,
       });
 
-      return result.success;
+      return true;
     } catch (error) {
       this.logger.error('Failed to send cancellation email', error);
       return false;
@@ -128,19 +126,22 @@ export class NotificationsService {
       if (!user?.email) return false;
 
       // Register user in OneSignal
-      await this.oneSignalService.createOrUpdateUser(userId, user.email, {
-        firstName: user.firstName || '',
-        lastName: user.lastName || '',
-        role: user.role,
+      await this.oneSignalService.createOrUpdateUser({
+        externalId: userId,
+        email: user.email,
+        tags: { firstName: user.firstName || '', lastName: user.lastName || '', role: user.role },
       });
 
-      const result = await this.oneSignalService.sendEmail({
-        to: user.email,
+      await this.oneSignalService.sendEmail({
+        includeEmailTokens: [user.email],
         subject: 'Bienvenue chez KADOOR SERVICE',
         body: this.generateWelcomeEmail({ userName: user.firstName || 'Client' }),
+        fromName: this.fromName,
+        fromAddress: this.fromAddress,
+        includeUnsubscribed: true,
       });
 
-      return result.success;
+      return true;
     } catch (error) {
       this.logger.error('Failed to send welcome email', error);
       return false;
@@ -155,18 +156,21 @@ export class NotificationsService {
       const user = await this.prisma.user.findUnique({ where: { id: userId } });
       if (!user?.email) return false;
 
-      const result = await this.oneSignalService.sendEmail({
-        to: user.email,
-        subject: `Reçu de paiement - KADOOR SERVICE`,
+      await this.oneSignalService.sendEmail({
+        includeEmailTokens: [user.email],
+        subject: 'Reçu de paiement - KADOOR SERVICE',
         body: this.generatePaymentReceiptEmail({
           userName: user.firstName || 'Client',
           amount,
           bookingRef: reservationId.slice(-8).toUpperCase(),
           date: new Date().toLocaleDateString('fr-FR'),
         }),
+        fromName: this.fromName,
+        fromAddress: this.fromAddress,
+        includeUnsubscribed: true,
       });
 
-      return result.success;
+      return true;
     } catch (error) {
       this.logger.error('Failed to send payment receipt', error);
       return false;
@@ -181,24 +185,19 @@ export class NotificationsService {
       where: { isActive: true },
     });
 
-    let sent = 0;
-    let failed = 0;
+    if (subscribers.length === 0) return { sent: 0, failed: 0 };
 
-    for (const subscriber of subscribers) {
-      const result = await this.oneSignalService.sendEmail({
-        to: subscriber.email,
-        subject,
-        body: content,
-      });
+    const emails = subscribers.map((s) => s.email);
+    const result = await this.oneSignalService.sendEmail({
+      includeEmailTokens: emails,
+      subject,
+      body: content,
+      fromName: this.fromName,
+      fromAddress: this.fromAddress,
+      includeUnsubscribed: true,
+    });
 
-      if (result.success) {
-        sent++;
-      } else {
-        failed++;
-      }
-    }
-
-    return { sent, failed };
+    return result ? { sent: emails.length, failed: 0 } : { sent: 0, failed: emails.length };
   }
 
   // Email template generators

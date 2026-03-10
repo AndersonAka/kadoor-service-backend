@@ -1,27 +1,22 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { OneSignalService } from '../notifications/onesignal.service';
 import * as handlebars from 'handlebars';
-import * as fs from 'fs';
-import * as path from 'path';
 
 @Injectable()
 export class EmailService {
-  private transporter: nodemailer.Transporter;
+  private readonly logger = new Logger(EmailService.name);
+  private readonly fromName: string;
+  private readonly fromAddress: string;
+  private readonly frontendUrl: string;
 
-  constructor(private configService: ConfigService) {
-    // Configuration du transporteur email
-    // Pour le développement, utiliser un service comme Ethereal Email ou Mailtrap
-    // Pour la production, utiliser SendGrid, Mailgun, ou SMTP
-    this.transporter = nodemailer.createTransport({
-      host: this.configService.get<string>('SMTP_HOST', 'smtp.ethereal.email'),
-      port: this.configService.get<number>('SMTP_PORT', 587),
-      secure: false, // true pour 465, false pour autres ports
-      auth: {
-        user: this.configService.get<string>('SMTP_USER', ''),
-        pass: this.configService.get<string>('SMTP_PASS', ''),
-      },
-    });
+  constructor(
+    private readonly oneSignalService: OneSignalService,
+    private readonly configService: ConfigService,
+  ) {
+    this.fromName = this.configService.get<string>('EMAIL_FROM_NAME') || 'KADOOR SERVICE';
+    this.fromAddress = this.configService.get<string>('EMAIL_FROM_ADDRESS') || 'no-reply@kadoorservice.com';
+    this.frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
   }
 
   /**
@@ -62,23 +57,45 @@ export class EmailService {
   }
 
   /**
-   * Envoie un email avec le contrat en pièce jointe
+   * Envoie un email avec lien vers le contrat
+   * Note: OneSignal ne supporte pas les pièces jointes, on inclut un lien de téléchargement
    */
-  async sendContract(booking: any, userEmail: string, contractBuffer: Buffer): Promise<void> {
+  async sendContract(booking: any, userEmail: string): Promise<void> {
     const subject = 'Votre contrat de location - KADOOR SERVICE';
     const template = this.getEmailTemplate('contract');
+    const contractUrl = `${this.frontendUrl}/bookings/${booking.id}?download=contract`;
     const html = template({
       bookingId: booking.id,
       userName: `${booking.user.firstName || ''} ${booking.user.lastName || ''}`,
       itemName: booking.vehicle?.title || booking.apartment?.title,
+      contractUrl,
     });
 
-    await this.sendEmail(userEmail, subject, html, [
-      {
-        filename: `contrat-${booking.id}.pdf`,
-        content: contractBuffer,
-      },
-    ]);
+    await this.sendEmail(userEmail, subject, html);
+  }
+
+  /**
+   * Envoie un email de bienvenue à un nouvel utilisateur
+   */
+  async sendWelcomeEmail(userEmail: string, firstName: string): Promise<void> {
+    const subject = 'Bienvenue chez KADOOR SERVICE !';
+    const template = this.getEmailTemplate('welcome');
+    const html = template({ userName: firstName || 'Client' });
+    await this.sendEmail(userEmail, subject, html);
+  }
+
+  /**
+   * Envoie un email d'annulation de réservation
+   */
+  async sendCancellationEmail(booking: any, userEmail: string): Promise<void> {
+    const subject = `Annulation de votre réservation #${booking.id?.slice(-8)?.toUpperCase() || ''} - KADOOR SERVICE`;
+    const template = this.getEmailTemplate('cancellation');
+    const html = template({
+      userName: `${booking.user?.firstName || ''} ${booking.user?.lastName || ''}`.trim() || 'Client',
+      itemName: booking.vehicle?.title || booking.apartment?.title || 'Service',
+      bookingRef: booking.id?.slice(-8)?.toUpperCase() || booking.id,
+    });
+    await this.sendEmail(userEmail, subject, html);
   }
 
   /**
@@ -120,29 +137,32 @@ export class EmailService {
   }
 
   /**
-   * Envoie un email générique
+   * Envoie un email via OneSignal
    */
   private async sendEmail(
-    to: string,
+    to: string | string[],
     subject: string,
     html: string,
-    attachments?: Array<{ filename: string; content: Buffer }>,
+    preheader?: string,
   ): Promise<void> {
-    const mailOptions = {
-      from: this.configService.get<string>('EMAIL_FROM', 'noreply@kadoorservice.com'),
-      to,
-      subject,
-      html,
-      attachments,
-    };
+    const recipients = Array.isArray(to) ? to : [to];
 
     try {
-      const info = await this.transporter.sendMail(mailOptions);
-      console.log('Email envoyé:', info.messageId);
+      const result = await this.oneSignalService.sendEmail({
+        includeEmailTokens: recipients,
+        subject,
+        body: html,
+        fromName: this.fromName,
+        fromAddress: this.fromAddress,
+        preheader,
+        includeUnsubscribed: true,
+      });
+
+      if (result) {
+        this.logger.log(`Email sent: "${subject}" to ${recipients.join(', ')}`);
+      }
     } catch (error) {
-      console.error('Erreur lors de l\'envoi de l\'email:', error);
-      // En développement, ne pas faire échouer la requête si l'email échoue
-      // En production, utiliser une queue (Bull/BullMQ) pour réessayer
+      this.logger.error(`Failed to send email "${subject}" to ${recipients.join(', ')}`, error);
     }
   }
 
@@ -237,29 +257,81 @@ export class EmailService {
           <style>
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #FF9800; color: white; padding: 20px; text-align: center; }
-            .content { padding: 20px; background-color: #f9f9f9; }
-            .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
+            .header { background: linear-gradient(135deg, #b91c1c 0%, #d4af37 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+            .content { padding: 30px; background: #fff; border: 1px solid #e0e0e0; }
+            .btn { display: inline-block; background: #b91c1c; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 16px 0; }
+            .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; background: #f8f9fa; border-radius: 0 0 8px 8px; }
           </style>
         </head>
         <body>
           <div class="container">
             <div class="header">
-              <h1>Votre Contrat de Location</h1>
+              <h1 style="margin:0">Votre Contrat de Location</h1>
             </div>
             <div class="content">
-              <p>Bonjour {{userName}},</p>
-              <p>Veuillez trouver ci-joint votre contrat de location pour la réservation {{bookingId}}.</p>
-              <p><strong>Service:</strong> {{itemName}}</p>
+              <p>Bonjour <strong>{{userName}}</strong>,</p>
+              <p>Votre contrat de location pour la réservation <strong>#{{bookingId}}</strong> est prêt.</p>
+              <p><strong>Service :</strong> {{itemName}}</p>
+              <p style="text-align:center"><a href="{{contractUrl}}" class="btn">Télécharger le contrat</a></p>
               <p>Merci de conserver ce document pour vos archives.</p>
             </div>
             <div class="footer">
-              <p>KADOOR SERVICE</p>
-              <p>Cet email est généré automatiquement, merci de ne pas y répondre.</p>
+              <p><strong>KADOOR SERVICE</strong> — Abidjan, Côte d'Ivoire</p>
             </div>
           </div>
         </body>
         </html>
+      `,
+      'welcome': `
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="UTF-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #b91c1c 0%, #d4af37 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+            .content { padding: 30px; background: #fff; border: 1px solid #e0e0e0; }
+            .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; background: #f8f9fa; border-radius: 0 0 8px 8px; }
+          </style>
+        </head>
+        <body><div class="container">
+          <div class="header"><h1 style="margin:0">KADOOR SERVICE</h1><p style="margin:8px 0 0">Bienvenue !</p></div>
+          <div class="content">
+            <p>Bonjour <strong>{{userName}}</strong>,</p>
+            <p>Nous sommes ravis de vous accueillir chez <strong>KADOOR SERVICE</strong> !</p>
+            <p>Vous pouvez dès maintenant explorer notre catalogue de véhicules et d'appartements disponibles à la location.</p>
+            <p style="margin-top:24px">À très bientôt,<br><strong>L'équipe KADOOR SERVICE</strong></p>
+          </div>
+          <div class="footer"><p><strong>KADOOR SERVICE</strong> — Abidjan, Côte d'Ivoire</p></div>
+        </div></body></html>
+      `,
+      'cancellation': `
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="UTF-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: #b91c1c; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+            .content { padding: 30px; background: #fff; border: 1px solid #e0e0e0; }
+            .info-box { background: #fff5f5; border-left: 4px solid #b91c1c; padding: 15px; margin: 20px 0; border-radius: 4px; }
+            .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; background: #f8f9fa; border-radius: 0 0 8px 8px; }
+          </style>
+        </head>
+        <body><div class="container">
+          <div class="header"><h1 style="margin:0">Annulation de réservation</h1></div>
+          <div class="content">
+            <p>Bonjour <strong>{{userName}}</strong>,</p>
+            <p>Nous vous informons que votre réservation a été annulée.</p>
+            <div class="info-box">
+              <p><strong>Référence :</strong> {{bookingRef}}</p>
+              <p><strong>Service :</strong> {{itemName}}</p>
+            </div>
+            <p>Si vous avez des questions, n'hésitez pas à nous contacter.</p>
+            <p style="margin-top:24px">Cordialement,<br><strong>L'équipe KADOOR SERVICE</strong></p>
+          </div>
+          <div class="footer"><p><strong>KADOOR SERVICE</strong> — Abidjan, Côte d'Ivoire</p></div>
+        </div></body></html>
       `,
       'incident-acknowledgement': `
         <!DOCTYPE html>

@@ -46,11 +46,12 @@ export declare class AdminClientsController {
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            userId: string;
             startDate: Date;
             endDate: Date;
             totalPrice: number;
             status: string;
+            paystackReference: string | null;
+            userId: string;
             vehicleId: string | null;
             apartmentId: string | null;
         })[];
@@ -104,11 +105,12 @@ export declare class AdminClientsController {
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            userId: string;
             startDate: Date;
             endDate: Date;
             totalPrice: number;
             status: string;
+            paystackReference: string | null;
+            userId: string;
             vehicleId: string | null;
             apartmentId: string | null;
         })[];

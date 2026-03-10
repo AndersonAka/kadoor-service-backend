@@ -31,8 +31,8 @@ export declare class IncidentsController {
         type: import("@prisma/client").$Enums.IncidentType;
         location: string | null;
         images: string[];
-        userId: string | null;
         status: import("@prisma/client").$Enums.IncidentStatus;
+        userId: string | null;
         vehicleId: string | null;
         apartmentId: string | null;
         date: Date | null;
@@ -65,8 +65,8 @@ export declare class IncidentsController {
         type: import("@prisma/client").$Enums.IncidentType;
         location: string | null;
         images: string[];
-        userId: string | null;
         status: import("@prisma/client").$Enums.IncidentStatus;
+        userId: string | null;
         vehicleId: string | null;
         apartmentId: string | null;
         date: Date | null;
@@ -99,8 +99,8 @@ export declare class IncidentsController {
         type: import("@prisma/client").$Enums.IncidentType;
         location: string | null;
         images: string[];
-        userId: string | null;
         status: import("@prisma/client").$Enums.IncidentStatus;
+        userId: string | null;
         vehicleId: string | null;
         apartmentId: string | null;
         date: Date | null;
@@ -118,8 +118,8 @@ export declare class IncidentsController {
         type: import("@prisma/client").$Enums.IncidentType;
         location: string | null;
         images: string[];
-        userId: string | null;
         status: import("@prisma/client").$Enums.IncidentStatus;
+        userId: string | null;
         vehicleId: string | null;
         apartmentId: string | null;
         date: Date | null;

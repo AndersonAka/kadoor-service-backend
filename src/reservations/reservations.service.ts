@@ -6,6 +6,7 @@ import { CreateReservationApartmentDto } from './dto/create-reservation-apartmen
 import { VehiclesService } from '../vehicles/vehicles.service';
 import { ApartmentsService } from '../apartments/apartments.service';
 import { EmailService } from '../email/email.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PaystackService } from './paystack.service';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -16,6 +17,7 @@ export class ReservationsService {
     private vehiclesService: VehiclesService,
     private apartmentsService: ApartmentsService,
     private emailService: EmailService,
+    private notificationsService: NotificationsService,
     private paystackService: PaystackService,
     private configService: ConfigService,
   ) {}
@@ -249,10 +251,23 @@ export class ReservationsService {
       throw new BadRequestException(`Statut invalide. Statuts valides: ${validStatuses.join(', ')}`);
     }
 
-    return this.prisma.booking.update({
+    const booking = await this.prisma.booking.update({
       where: { id },
       data: { status },
+      include: {
+        vehicle: true,
+        apartment: true,
+        user: { select: { id: true, email: true, firstName: true, lastName: true } },
+      },
     });
+
+    if (status === 'CANCELLED' && booking.user?.email) {
+      this.emailService
+        .sendCancellationEmail(booking, booking.user.email)
+        .catch((err) => console.error('[ReservationsService] Cancellation email error:', err));
+    }
+
+    return booking;
   }
 
   /**
@@ -414,6 +429,10 @@ export class ReservationsService {
         (err) => console.error('Erreur email confirmation:', err),
       );
 
+      this.notificationsService
+        .sendReservationConfirmation(confirmed.userId, bookingId, confirmed.vehicle ? 'vehicle' : 'apartment')
+        .catch((err) => console.error('[verifyPayment] Push notification error:', err));
+
       return { booking: confirmed, status: 'success', paystackStatus: verification.status };
     }
 
@@ -436,17 +455,46 @@ export class ReservationsService {
       const reference = body.data?.reference;
       if (!reference) return { status: 'error', message: 'No reference' };
 
-      const booking = await this.prisma.booking.findFirst({ where: { paystackReference: reference } });
-      if (!booking) return { status: 'ok', message: 'Booking not found' };
+      const existing = await this.prisma.booking.findFirst({ where: { paystackReference: reference } });
+      if (!existing) return { status: 'ok', message: 'Booking not found' };
 
-      if (booking.status === 'CONFIRMED' || booking.status === 'CANCELLED') {
+      if (existing.status === 'CONFIRMED' || existing.status === 'CANCELLED') {
         return { status: 'ok', message: 'Already processed' };
       }
 
       if (body.event === 'charge.success') {
-        await this.prisma.booking.update({ where: { id: booking.id }, data: { status: 'CONFIRMED' } });
+        const confirmed = await this.prisma.booking.update({
+          where: { id: existing.id },
+          data: { status: 'CONFIRMED' },
+          include: {
+            vehicle: true,
+            apartment: true,
+            user: { select: { id: true, email: true, firstName: true, lastName: true } },
+          },
+        });
+        if (confirmed.user?.email) {
+          this.emailService
+            .sendPaymentConfirmation(confirmed, confirmed.user.email)
+            .catch((err) => console.error('[Webhook] Payment confirmation email error:', err));
+          this.notificationsService
+            .sendReservationConfirmation(confirmed.userId, confirmed.id, confirmed.vehicle ? 'vehicle' : 'apartment')
+            .catch((err) => console.error('[Webhook] Push notification error:', err));
+        }
       } else {
-        await this.prisma.booking.update({ where: { id: booking.id }, data: { status: 'CANCELLED' } });
+        const cancelled = await this.prisma.booking.update({
+          where: { id: existing.id },
+          data: { status: 'CANCELLED' },
+          include: {
+            vehicle: true,
+            apartment: true,
+            user: { select: { id: true, email: true, firstName: true, lastName: true } },
+          },
+        });
+        if (cancelled.user?.email) {
+          this.emailService
+            .sendCancellationEmail(cancelled, cancelled.user.email)
+            .catch((err) => console.error('[Webhook] Cancellation email error:', err));
+        }
       }
     }
 

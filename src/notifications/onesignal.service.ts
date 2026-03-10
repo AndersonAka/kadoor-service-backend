@@ -1,39 +1,34 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-
-export interface EmailPayload {
-  to: string;
-  subject: string;
-  body: string;
-  templateId?: string;
-  data?: Record<string, any>;
-}
-
-export interface PushPayload {
-  userId?: string;
-  title: string;
-  message: string;
-  data?: Record<string, any>;
-  url?: string;
-}
+import * as OneSignal from '@onesignal/node-onesignal';
+import { SendPushDto, SendEmailDto } from './dto';
 
 @Injectable()
 export class OneSignalService {
   private readonly logger = new Logger(OneSignalService.name);
+  private readonly client: OneSignal.DefaultApi;
   private readonly appId: string;
-  private readonly restApiKey: string;
   private readonly isConfigured: boolean;
 
-  constructor(private configService: ConfigService) {
-    this.appId = this.configService.get<string>('ONESIGNAL_APP_ID') || '';
-    this.restApiKey = this.configService.get<string>('ONESIGNAL_REST_API_KEY') || '';
-    this.isConfigured = !!(this.appId && this.restApiKey);
+  constructor(private readonly configService: ConfigService) {
+    const restApiKey = this.configService.get<string>('ONESIGNAL_REST_API_KEY');
+    const appId = this.configService.get<string>('ONESIGNAL_APP_ID');
+
+    this.isConfigured = !!(restApiKey && appId);
+    this.appId = appId || '';
 
     if (!this.isConfigured) {
       this.logger.warn(
-        'OneSignal is not configured. Set ONESIGNAL_APP_ID and ONESIGNAL_REST_API_KEY environment variables.',
+        'OneSignal credentials not configured. Push/Email notifications will not work.',
       );
     }
+
+    const configuration = OneSignal.createConfiguration({
+      restApiKey: restApiKey || '',
+    });
+
+    this.client = new OneSignal.DefaultApi(configuration);
+    this.logger.log('OneSignal client initialized');
   }
 
   /**
@@ -44,130 +39,149 @@ export class OneSignalService {
   }
 
   /**
-   * Send an email via OneSignal
-   * NOTE: Requires OneSignal API keys to be configured
+   * Envoie une notification push
    */
-  async sendEmail(payload: EmailPayload): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  async sendPush(dto: SendPushDto): Promise<OneSignal.CreateNotificationSuccessResponse | null> {
     if (!this.isConfigured) {
-      this.logger.warn('OneSignal not configured - email not sent', { to: payload.to, subject: payload.subject });
-      return { 
-        success: false, 
-        error: 'OneSignal not configured. Please set ONESIGNAL_APP_ID and ONESIGNAL_REST_API_KEY.' 
-      };
+      this.logger.warn('OneSignal not configured - push not sent');
+      return null;
     }
 
     try {
-      const response = await fetch('https://onesignal.com/api/v1/notifications', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Basic ${this.restApiKey}`,
-        },
-        body: JSON.stringify({
-          app_id: this.appId,
-          include_email_tokens: [payload.to],
-          email_subject: payload.subject,
-          email_body: payload.body,
-          ...(payload.templateId && { template_id: payload.templateId }),
-          ...(payload.data && { data: payload.data }),
-        }),
-      });
+      const notification = new OneSignal.Notification();
+      notification.app_id = this.appId;
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        this.logger.error('OneSignal email error', result);
-        return { success: false, error: result.errors?.[0] || 'Unknown error' };
+      // Ciblage
+      if (dto.includedSegments) {
+        notification.included_segments = dto.includedSegments;
+      }
+      if (dto.includeSubscriptionIds) {
+        notification.include_subscription_ids = dto.includeSubscriptionIds;
+      }
+      if (dto.includeAliases) {
+        notification.include_aliases = dto.includeAliases;
+        notification.target_channel = 'push';
       }
 
-      this.logger.log('Email sent successfully', { to: payload.to, messageId: result.id });
-      return { success: true, messageId: result.id };
+      // Contenu
+      notification.contents = dto.contents;
+      if (dto.headings) {
+        notification.headings = dto.headings;
+      }
+
+      // Options
+      if (dto.url) {
+        notification.url = dto.url;
+      }
+      if (dto.data) {
+        notification.data = dto.data;
+      }
+      if (dto.bigPicture) {
+        notification.big_picture = dto.bigPicture;
+      }
+
+      const result = await this.client.createNotification(notification);
+      this.logger.log(`Push notification sent: ${result.id}`);
+      return result;
     } catch (error) {
-      this.logger.error('Failed to send email via OneSignal', error);
-      return { success: false, error: error.message };
+      this.logger.error('Failed to send push notification', error);
+      return null;
     }
   }
 
   /**
-   * Send a push notification via OneSignal
-   * NOTE: Requires OneSignal API keys to be configured
+   * Envoie un email via OneSignal
    */
-  async sendPush(payload: PushPayload): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  async sendEmail(dto: SendEmailDto): Promise<OneSignal.CreateNotificationSuccessResponse | null> {
     if (!this.isConfigured) {
-      this.logger.warn('OneSignal not configured - push not sent', { title: payload.title });
-      return { 
-        success: false, 
-        error: 'OneSignal not configured. Please set ONESIGNAL_APP_ID and ONESIGNAL_REST_API_KEY.' 
-      };
+      this.logger.warn('OneSignal not configured - email not sent');
+      return null;
     }
 
     try {
-      const notificationPayload: Record<string, any> = {
-        app_id: this.appId,
-        headings: { en: payload.title, fr: payload.title },
-        contents: { en: payload.message, fr: payload.message },
-        ...(payload.data && { data: payload.data }),
-        ...(payload.url && { url: payload.url }),
-      };
+      const notification = new OneSignal.Notification();
+      notification.app_id = this.appId;
 
-      // Target specific user or all users
-      if (payload.userId) {
-        notificationPayload.include_external_user_ids = [payload.userId];
-      } else {
-        notificationPayload.included_segments = ['All'];
+      // Ciblage
+      notification.include_email_tokens = dto.includeEmailTokens;
+
+      // Contenu email
+      notification.email_subject = dto.subject;
+      notification.email_body = dto.body;
+
+      if (dto.fromName) {
+        notification.email_from_name = dto.fromName;
+      }
+      if (dto.fromAddress) {
+        notification.email_from_address = dto.fromAddress;
+      }
+      if (dto.preheader) {
+        notification.email_preheader = dto.preheader;
       }
 
-      const response = await fetch('https://onesignal.com/api/v1/notifications', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Basic ${this.restApiKey}`,
-        },
-        body: JSON.stringify(notificationPayload),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        this.logger.error('OneSignal push error', result);
-        return { success: false, error: result.errors?.[0] || 'Unknown error' };
+      // Options
+      if (dto.disableEmailClickTracking !== undefined) {
+        notification.disable_email_click_tracking = dto.disableEmailClickTracking;
+      }
+      if (dto.includeUnsubscribed !== undefined) {
+        notification.include_unsubscribed = dto.includeUnsubscribed;
       }
 
-      this.logger.log('Push notification sent successfully', { messageId: result.id });
-      return { success: true, messageId: result.id };
+      const result = await this.client.createNotification(notification);
+      this.logger.log(`Email sent to ${dto.includeEmailTokens.length} recipient(s): ${result.id}`);
+      return result;
     } catch (error) {
-      this.logger.error('Failed to send push via OneSignal', error);
-      return { success: false, error: error.message };
+      this.logger.error('Failed to send email', error);
+      return null;
     }
   }
 
   /**
-   * Create or update a user in OneSignal
+   * Crée ou met à jour un utilisateur OneSignal
    */
-  async createOrUpdateUser(externalUserId: string, email: string, tags?: Record<string, string>): Promise<boolean> {
+  async createOrUpdateUser(params: {
+    externalId: string;
+    email?: string;
+    phoneNumber?: string;
+    tags?: Record<string, string | number>;
+  }): Promise<OneSignal.User | null> {
     if (!this.isConfigured) {
       this.logger.warn('OneSignal not configured - user not created/updated');
-      return false;
+      return null;
     }
 
     try {
-      const response = await fetch(`https://onesignal.com/api/v1/apps/${this.appId}/users`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Basic ${this.restApiKey}`,
-        },
-        body: JSON.stringify({
-          identity: { external_id: externalUserId },
-          subscriptions: [{ type: 'Email', token: email }],
-          ...(tags && { tags }),
-        }),
-      });
+      const user = new OneSignal.User();
 
-      return response.ok;
+      // Identity
+      user.identity = { external_id: params.externalId };
+
+      // Subscriptions
+      const subscriptions: OneSignal.Subscription[] = [];
+
+      if (params.email) {
+        subscriptions.push({ type: 'Email', token: params.email });
+      }
+
+      if (params.phoneNumber) {
+        subscriptions.push({ type: 'SMS', token: params.phoneNumber });
+      }
+
+      if (subscriptions.length > 0) {
+        user.subscriptions = subscriptions;
+      }
+
+      // Tags
+      if (params.tags) {
+        user.properties = { tags: params.tags } as any;
+      }
+
+      const result = await this.client.createUser(this.appId, user);
+      this.logger.log(`User created/updated in OneSignal: ${params.externalId}`);
+      return result;
     } catch (error) {
       this.logger.error('Failed to create/update user in OneSignal', error);
-      return false;
+      return null;
     }
   }
 }

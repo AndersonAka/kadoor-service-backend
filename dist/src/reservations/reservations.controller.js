@@ -25,17 +25,17 @@ let ReservationsController = class ReservationsController {
         this.reservationsService = reservationsService;
     }
     createVehicleReservation(dto, req) {
-        if (!req.user || !req.user.userId) {
+        const userId = req.user?.id || req.user?.userId;
+        if (!userId) {
             throw new common_1.UnauthorizedException('Utilisateur non authentifié');
         }
-        const userId = req.user.userId;
         return this.reservationsService.createVehicleReservation(userId, dto);
     }
     createApartmentReservation(dto, req) {
-        if (!req.user || !req.user.userId) {
+        const userId = req.user?.id || req.user?.userId;
+        if (!userId) {
             throw new common_1.UnauthorizedException('Utilisateur non authentifié');
         }
-        const userId = req.user.userId;
         return this.reservationsService.createApartmentReservation(userId, dto);
     }
     findAll(userId, status) {
@@ -49,6 +49,27 @@ let ReservationsController = class ReservationsController {
     }
     cancel(id) {
         return this.reservationsService.cancel(id);
+    }
+    async initiateVehiclePayment(dto, req) {
+        const userId = req.user?.id || req.user?.userId;
+        if (!userId)
+            throw new common_1.UnauthorizedException('Utilisateur non authentifié');
+        const userEmail = req.user?.email;
+        return this.reservationsService.initiateVehiclePayment(userId, userEmail, dto);
+    }
+    async initiateApartmentPayment(dto, req) {
+        const userId = req.user?.id || req.user?.userId;
+        if (!userId)
+            throw new common_1.UnauthorizedException('Utilisateur non authentifié');
+        const userEmail = req.user?.email;
+        return this.reservationsService.initiateApartmentPayment(userId, userEmail, dto);
+    }
+    async verifyPayment(bookingId) {
+        return this.reservationsService.verifyPayment(bookingId);
+    }
+    async handleWebhook(signature, req, body) {
+        const rawBody = req.rawBody?.toString() || JSON.stringify(body);
+        return this.reservationsService.handleWebhook(signature, rawBody, body);
     }
 };
 exports.ReservationsController = ReservationsController;
@@ -96,6 +117,8 @@ __decorate([
 ], ReservationsController.prototype, "findAll", null);
 __decorate([
     (0, common_1.Get)(':id'),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, swagger_1.ApiBearerAuth)(),
     (0, swagger_1.ApiOperation)({ summary: 'Récupérer les détails d\'une réservation' }),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'ID de la réservation' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'Détails de la réservation retournés avec succès' }),
@@ -120,6 +143,49 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", void 0)
 ], ReservationsController.prototype, "cancel", null);
+__decorate([
+    (0, common_1.Post)('vehicles/initiate-payment'),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, swagger_1.ApiOperation)({ summary: 'Créer une réservation véhicule et initier le paiement Paystack' }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [create_reservation_vehicle_dto_1.CreateReservationVehicleDto, Object]),
+    __metadata("design:returntype", Promise)
+], ReservationsController.prototype, "initiateVehiclePayment", null);
+__decorate([
+    (0, common_1.Post)('apartments/initiate-payment'),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, swagger_1.ApiOperation)({ summary: 'Créer une réservation appartement et initier le paiement Paystack' }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [create_reservation_apartment_dto_1.CreateReservationApartmentDto, Object]),
+    __metadata("design:returntype", Promise)
+], ReservationsController.prototype, "initiateApartmentPayment", null);
+__decorate([
+    (0, common_1.Post)('verify-payment/:bookingId'),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, swagger_1.ApiOperation)({ summary: 'Vérifier le paiement Paystack et confirmer la réservation' }),
+    __param(0, (0, common_1.Param)('bookingId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], ReservationsController.prototype, "verifyPayment", null);
+__decorate([
+    (0, common_1.Post)('paystack/webhook'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    (0, swagger_1.ApiOperation)({ summary: 'Webhook Paystack (public)' }),
+    __param(0, (0, common_1.Headers)('x-paystack-signature')),
+    __param(1, (0, common_1.Req)()),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", Promise)
+], ReservationsController.prototype, "handleWebhook", null);
 exports.ReservationsController = ReservationsController = __decorate([
     (0, swagger_1.ApiTags)('reservations'),
     (0, common_1.Controller)('reservations'),

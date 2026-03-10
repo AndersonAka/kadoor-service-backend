@@ -9,9 +9,10 @@ import { ApartmentsModule } from '../apartments/apartments.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { EmailModule } from '../email/email.module';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [ConfigModule, PrismaModule, VehiclesModule, ApartmentsModule, DocumentsModule, EmailModule, AuthModule],
+  imports: [ConfigModule, PrismaModule, VehiclesModule, ApartmentsModule, DocumentsModule, EmailModule, AuthModule, NotificationsModule],
   providers: [ReservationsService, PaystackService],
   controllers: [ReservationsController],
   exports: [ReservationsService],
