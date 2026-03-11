@@ -18,6 +18,7 @@ import { IncidentsModule } from './incidents/incidents.module';
 import { TestimonialsModule } from './testimonials/testimonials.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     TestimonialsModule,
     FavoritesModule,
     NotificationsModule,
+    SettingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
