@@ -98,10 +98,7 @@ export class ReservationsService {
       },
     });
 
-    // Envoyer l'email de confirmation (asynchrone, ne bloque pas la réponse)
-    this.emailService.sendReservationConfirmation(reservation, reservation.user.email).catch(
-      (error) => console.error('Erreur envoi email confirmation:', error),
-    );
+    // Note: L'email de confirmation sera envoyé après paiement confirmé
 
     return reservation;
   }
@@ -173,18 +170,15 @@ export class ReservationsService {
       },
     });
 
-    // Envoyer l'email de confirmation (asynchrone, ne bloque pas la réponse)
-    this.emailService.sendReservationConfirmation(reservation, reservation.user.email).catch(
-      (error) => console.error('Erreur envoi email confirmation:', error),
-    );
+    // Note: L'email de confirmation sera envoyé après paiement confirmé
 
     return reservation;
   }
 
   /**
-   * Récupère toutes les réservations (avec filtres)
+   * Récupère toutes les réservations (avec filtres et pagination)
    */
-  async findAll(userId?: string, status?: string) {
+  async findAll(userId?: string, status?: string, page: number = 1, limit: number = 10) {
     const where: any = {};
 
     if (userId) {
@@ -195,7 +189,14 @@ export class ReservationsService {
       where.status = status;
     }
 
-    return this.prisma.booking.findMany({
+    // Compter le total pour la pagination
+    const total = await this.prisma.booking.count({ where });
+    const totalPages = Math.ceil(total / limit) || 1;
+    
+    // Calculer le skip pour la pagination
+    const skip = (page - 1) * limit;
+
+    const data = await this.prisma.booking.findMany({
       where,
       include: {
         vehicle: true,
@@ -211,7 +212,19 @@ export class ReservationsService {
         },
       },
       orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
     });
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+      },
+    };
   }
 
   /**

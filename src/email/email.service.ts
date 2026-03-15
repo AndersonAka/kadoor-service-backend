@@ -25,15 +25,24 @@ export class EmailService {
   async sendReservationConfirmation(booking: any, userEmail: string): Promise<void> {
     const subject = 'Confirmation de votre réservation - KADOOR SERVICE';
     const template = this.getEmailTemplate('reservation-confirmation');
+    
+    // URLs pour les documents téléchargeables
+    const bookingPageUrl = `${this.frontendUrl}/fr/bookings/${booking.id}`;
+    const logoUrl = `${this.configService.get<string>('BACKEND_URL') || 'http://localhost:4000'}/logo_kadoor_service.png`;
+    
     const html = template({
       bookingId: booking.id,
-      userName: `${booking.user.firstName || ''} ${booking.user.lastName || ''}`,
+      userName: `${booking.user.firstName || ''} ${booking.user.lastName || ''}`.trim() || 'Client',
       itemName: booking.vehicle?.title || booking.apartment?.title,
-      itemType: booking.vehicle ? 'véhicule' : 'appartement',
+      itemType: booking.vehicle ? 'Véhicule' : 'Appartement',
       startDate: new Date(booking.startDate).toLocaleDateString('fr-FR'),
       endDate: new Date(booking.endDate).toLocaleDateString('fr-FR'),
       totalPrice: booking.totalPrice.toFixed(2),
       status: booking.status,
+      logoUrl,
+      invoiceUrl: `${bookingPageUrl}?download=invoice`,
+      receiptUrl: `${bookingPageUrl}?download=receipt`,
+      contractUrl: `${bookingPageUrl}?download=contract`,
     });
 
     await this.sendEmail(userEmail, subject, html);
@@ -45,12 +54,15 @@ export class EmailService {
   async sendPaymentConfirmation(booking: any, userEmail: string): Promise<void> {
     const subject = 'Confirmation de paiement - KADOOR SERVICE';
     const template = this.getEmailTemplate('payment-confirmation');
+    const logoUrl = `${this.configService.get<string>('BACKEND_URL') || 'http://localhost:4000'}/logo_kadoor_service.png`;
+    
     const html = template({
       bookingId: booking.id,
-      userName: `${booking.user.firstName || ''} ${booking.user.lastName || ''}`,
+      userName: `${booking.user.firstName || ''} ${booking.user.lastName || ''}`.trim() || 'Client',
       itemName: booking.vehicle?.title || booking.apartment?.title,
       totalPrice: booking.totalPrice.toFixed(2),
       paymentDate: new Date().toLocaleDateString('fr-FR'),
+      logoUrl,
     });
 
     await this.sendEmail(userEmail, subject, html);
@@ -178,33 +190,60 @@ export class EmailService {
         <head>
           <meta charset="UTF-8">
           <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
-            .content { padding: 20px; background-color: #f9f9f9; }
-            .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f5f5f5; }
+            .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
+            .header { background-color: #ffffff; padding: 20px; text-align: center; border-bottom: 4px solid #b91c1c; }
+            .header img { max-width: 180px; height: auto; }
+            .header h1 { color: #b91c1c; margin: 15px 0 0 0; font-size: 22px; }
+            .content { padding: 30px; background-color: #ffffff; }
+            .details-box { background-color: #f8f9fa; border-radius: 8px; padding: 20px; margin: 20px 0; }
+            .details-box h3 { margin-top: 0; color: #b91c1c; }
+            .details-box ul { list-style: none; padding: 0; margin: 0; }
+            .details-box li { padding: 8px 0; border-bottom: 1px solid #e0e0e0; }
+            .details-box li:last-child { border-bottom: none; }
+            .documents-section { background-color: #fff8f8; border: 1px solid #f0d0d0; border-radius: 8px; padding: 20px; margin: 25px 0; }
+            .documents-section h3 { margin-top: 0; color: #b91c1c; }
+            .btn { display: inline-block; background-color: #b91c1c; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 8px 8px 8px 0; font-weight: bold; }
+            .btn:hover { background-color: #991b1b; }
+            .btn-outline { background-color: #ffffff; color: #b91c1c; border: 2px solid #b91c1c; }
+            .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; background-color: #f8f9fa; border-top: 1px solid #e0e0e0; }
           </style>
         </head>
         <body>
           <div class="container">
             <div class="header">
+              <img src="{{logoUrl}}" alt="KADOOR SERVICE" />
               <h1>Confirmation de Réservation</h1>
             </div>
             <div class="content">
-              <p>Bonjour {{userName}},</p>
-              <p>Votre réservation a été confirmée avec succès !</p>
-              <h3>Détails de la réservation :</h3>
-              <ul>
-                <li><strong>N° Réservation:</strong> {{bookingId}}</li>
-                <li><strong>{{itemType}}:</strong> {{itemName}}</li>
-                <li><strong>Période:</strong> {{startDate}} au {{endDate}}</li>
-                <li><strong>Montant total:</strong> {{totalPrice}} FCFA</li>
-                <li><strong>Statut:</strong> {{status}}</li>
-              </ul>
-              <p>Merci de votre confiance !</p>
+              <p>Bonjour <strong>{{userName}}</strong>,</p>
+              <p>Votre réservation a été confirmée avec succès ! Nous vous remercions de votre confiance.</p>
+              
+              <div class="details-box">
+                <h3>Détails de la réservation</h3>
+                <ul>
+                  <li><strong>N° Réservation :</strong> {{bookingId}}</li>
+                  <li><strong>{{itemType}} :</strong> {{itemName}}</li>
+                  <li><strong>Période :</strong> Du {{startDate}} au {{endDate}}</li>
+                  <li><strong>Montant total :</strong> {{totalPrice}} FCFA</li>
+                  <li><strong>Statut :</strong> {{status}}</li>
+                </ul>
+              </div>
+
+              <div class="documents-section">
+                <h3>Vos documents</h3>
+                <p>Téléchargez vos documents importants :</p>
+                <a href="{{invoiceUrl}}" class="btn">Facture</a>
+                <a href="{{receiptUrl}}" class="btn btn-outline">Reçu</a>
+                <a href="{{contractUrl}}" class="btn btn-outline">Contrat</a>
+              </div>
+
+              <p>Si vous avez des questions, n'hésitez pas à nous contacter.</p>
+              <p style="margin-top: 30px;">Cordialement,<br><strong>L'équipe KADOOR SERVICE</strong></p>
             </div>
             <div class="footer">
-              <p>KADOOR SERVICE</p>
+              <p><strong>KADOOR SERVICE</strong></p>
+              <p>Abidjan, Côte d'Ivoire</p>
               <p>Cet email est généré automatiquement, merci de ne pas y répondre.</p>
             </div>
           </div>
@@ -217,32 +256,47 @@ export class EmailService {
         <head>
           <meta charset="UTF-8">
           <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #2196F3; color: white; padding: 20px; text-align: center; }
-            .content { padding: 20px; background-color: #f9f9f9; }
-            .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; }
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f5f5f5; }
+            .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
+            .header { background-color: #ffffff; padding: 20px; text-align: center; border-bottom: 4px solid #b91c1c; }
+            .header img { max-width: 180px; height: auto; }
+            .header h1 { color: #b91c1c; margin: 15px 0 0 0; font-size: 22px; }
+            .content { padding: 30px; background-color: #ffffff; }
+            .details-box { background-color: #f8f9fa; border-radius: 8px; padding: 20px; margin: 20px 0; }
+            .details-box h3 { margin-top: 0; color: #b91c1c; }
+            .details-box ul { list-style: none; padding: 0; margin: 0; }
+            .details-box li { padding: 8px 0; border-bottom: 1px solid #e0e0e0; }
+            .details-box li:last-child { border-bottom: none; }
+            .success-badge { background-color: #dcfce7; color: #166534; padding: 10px 20px; border-radius: 20px; display: inline-block; font-weight: bold; margin: 10px 0; }
+            .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; background-color: #f8f9fa; border-top: 1px solid #e0e0e0; }
           </style>
         </head>
         <body>
           <div class="container">
             <div class="header">
+              <img src="{{logoUrl}}" alt="KADOOR SERVICE" />
               <h1>Confirmation de Paiement</h1>
             </div>
             <div class="content">
-              <p>Bonjour {{userName}},</p>
-              <p>Votre paiement a été reçu avec succès !</p>
-              <h3>Détails du paiement :</h3>
-              <ul>
-                <li><strong>N° Réservation:</strong> {{bookingId}}</li>
-                <li><strong>Service:</strong> {{itemName}}</li>
-                <li><strong>Montant payé:</strong> {{totalPrice}} FCFA</li>
-                <li><strong>Date de paiement:</strong> {{paymentDate}}</li>
-              </ul>
-              <p>Merci pour votre paiement !</p>
+              <p>Bonjour <strong>{{userName}}</strong>,</p>
+              <p style="text-align: center;"><span class="success-badge">✓ Paiement reçu avec succès</span></p>
+              
+              <div class="details-box">
+                <h3>Détails du paiement</h3>
+                <ul>
+                  <li><strong>N° Réservation :</strong> {{bookingId}}</li>
+                  <li><strong>Service :</strong> {{itemName}}</li>
+                  <li><strong>Montant payé :</strong> {{totalPrice}} FCFA</li>
+                  <li><strong>Date de paiement :</strong> {{paymentDate}}</li>
+                </ul>
+              </div>
+
+              <p>Merci pour votre confiance !</p>
+              <p style="margin-top: 30px;">Cordialement,<br><strong>L'équipe KADOOR SERVICE</strong></p>
             </div>
             <div class="footer">
-              <p>KADOOR SERVICE</p>
+              <p><strong>KADOOR SERVICE</strong></p>
+              <p>Abidjan, Côte d'Ivoire</p>
               <p>Cet email est généré automatiquement, merci de ne pas y répondre.</p>
             </div>
           </div>

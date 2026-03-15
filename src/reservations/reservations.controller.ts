@@ -70,16 +70,22 @@ export class ReservationsController {
   @ApiOperation({ summary: 'Récupérer la liste des réservations' })
   @ApiQuery({ name: 'userId', required: false, description: 'Filtrer par ID utilisateur' })
   @ApiQuery({ name: 'status', required: false, description: 'Filtrer par statut (PENDING, CONFIRMED, CANCELLED, COMPLETED)' })
+  @ApiQuery({ name: 'page', required: false, description: 'Numéro de page (défaut: 1)' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Nombre d\'éléments par page (défaut: 10)' })
   @ApiResponse({ status: 200, description: 'Liste des réservations retournée avec succès' })
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   findAll(
     @Query('userId') userId?: string,
     @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
     // @Request() req,
   ) {
     // TODO: Si USER, utiliser req.user.id, si ADMIN, permettre userId en query
-    return this.reservationsService.findAll(userId, status);
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 10;
+    return this.reservationsService.findAll(userId, status, pageNum, limitNum);
   }
 
   @Get(':id')
