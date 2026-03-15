@@ -111,6 +111,25 @@ export class EmailService {
   }
 
   /**
+   * Envoie un email de réinitialisation de mot de passe
+   */
+  async sendPasswordResetEmail(userEmail: string, userName: string, resetToken: string): Promise<void> {
+    const subject = 'Réinitialisation de votre mot de passe - KADOOR SERVICE';
+    const template = this.getEmailTemplate('password-reset');
+    const resetUrl = `${this.frontendUrl}/fr/reset-password?token=${resetToken}`;
+    const logoUrl = `${this.configService.get<string>('BACKEND_URL') || 'http://localhost:4000'}/logo_kadoor_service.png`;
+    
+    const html = template({
+      userName: userName || 'Client',
+      resetUrl,
+      logoUrl,
+      expirationTime: '1 heure',
+    });
+
+    await this.sendEmail(userEmail, subject, html);
+  }
+
+  /**
    * Envoie un accusé de réception pour une déclaration d'incident
    */
   async sendIncidentAcknowledgement(incident: any): Promise<void> {
@@ -447,6 +466,58 @@ export class EmailService {
               <p><strong>KADOOR SERVICE</strong></p>
               <p>Cet email est généré automatiquement, merci de ne pas y répondre.</p>
               <p>Pour toute question, contactez-nous via notre site web ou par téléphone.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      'password-reset': `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f5f5f5; }
+            .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
+            .header { background-color: #ffffff; padding: 20px; text-align: center; border-bottom: 4px solid #b91c1c; }
+            .header img { max-width: 180px; height: auto; }
+            .header h1 { color: #b91c1c; margin: 15px 0 0 0; font-size: 22px; }
+            .content { padding: 30px; background-color: #ffffff; }
+            .btn { display: inline-block; background-color: #b91c1c; color: #ffffff !important; padding: 14px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; margin: 20px 0; }
+            .btn:hover { background-color: #991b1b; }
+            .warning-box { background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 15px; margin: 20px 0; }
+            .warning-box p { margin: 0; color: #856404; }
+            .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; background-color: #f8f9fa; border-top: 1px solid #e0e0e0; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <img src="{{logoUrl}}" alt="KADOOR SERVICE" />
+              <h1>Réinitialisation du mot de passe</h1>
+            </div>
+            <div class="content">
+              <p>Bonjour <strong>{{userName}}</strong>,</p>
+              <p>Vous avez demandé la réinitialisation de votre mot de passe. Cliquez sur le bouton ci-dessous pour créer un nouveau mot de passe :</p>
+              
+              <div style="text-align: center;">
+                <a href="{{resetUrl}}" class="btn">Réinitialiser mon mot de passe</a>
+              </div>
+
+              <div class="warning-box">
+                <p><strong>⚠️ Important :</strong> Ce lien expire dans <strong>{{expirationTime}}</strong>.</p>
+              </div>
+
+              <p>Si vous n'avez pas demandé cette réinitialisation, ignorez simplement cet email. Votre mot de passe restera inchangé.</p>
+              
+              <p>Si le bouton ne fonctionne pas, copiez et collez ce lien dans votre navigateur :</p>
+              <p style="word-break: break-all; color: #666; font-size: 12px;">{{resetUrl}}</p>
+              
+              <p style="margin-top: 30px;">Cordialement,<br><strong>L'équipe KADOOR SERVICE</strong></p>
+            </div>
+            <div class="footer">
+              <p><strong>KADOOR SERVICE</strong></p>
+              <p>Cet email est généré automatiquement, merci de ne pas y répondre.</p>
             </div>
           </div>
         </body>

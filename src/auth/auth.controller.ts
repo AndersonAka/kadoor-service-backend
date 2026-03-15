@@ -168,4 +168,40 @@ export class AuthController {
     await this.authService.deactivateAccount(req.user.id);
     return { message: 'Account deactivated successfully' };
   }
+
+  // ==================== PASSWORD RESET ====================
+
+  @Post('forgot-password')
+  @ApiOperation({ summary: 'Demander la réinitialisation du mot de passe' })
+  @ApiResponse({ status: 200, description: 'Email de réinitialisation envoyé' })
+  async forgotPassword(@Body() body: { email: string }) {
+    if (!body.email) {
+      throw new BadRequestException('Email is required');
+    }
+    return this.authService.forgotPassword(body.email);
+  }
+
+  @Post('reset-password')
+  @ApiOperation({ summary: 'Réinitialiser le mot de passe avec le token' })
+  @ApiResponse({ status: 200, description: 'Mot de passe réinitialisé' })
+  @ApiResponse({ status: 400, description: 'Token invalide ou expiré' })
+  async resetPassword(@Body() body: { token: string; newPassword: string }) {
+    if (!body.token || !body.newPassword) {
+      throw new BadRequestException('Token and new password are required');
+    }
+    if (body.newPassword.length < 6) {
+      throw new BadRequestException('Password must be at least 6 characters');
+    }
+    return this.authService.resetPassword(body.token, body.newPassword);
+  }
+
+  @Get('verify-reset-token')
+  @ApiOperation({ summary: 'Vérifier si le token de réinitialisation est valide' })
+  @ApiResponse({ status: 200, description: 'Statut du token' })
+  async verifyResetToken(@Query('token') token: string) {
+    if (!token) {
+      return { valid: false };
+    }
+    return this.authService.verifyResetToken(token);
+  }
 }
