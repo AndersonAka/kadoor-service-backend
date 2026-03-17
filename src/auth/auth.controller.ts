@@ -93,15 +93,27 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Token invalide' })
   async googleTokenLogin(@Body('credential') credential: string) {
     try {
+      const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
       console.log('[AuthController] Google token login attempt');
+      console.log('[AuthController] Using GOOGLE_CLIENT_ID:', clientId ? `${clientId.substring(0, 20)}...` : 'NOT SET');
+      
+      if (!clientId) {
+        console.error('[AuthController] GOOGLE_CLIENT_ID is not configured');
+        throw new UnauthorizedException('Google OAuth not configured');
+      }
+
+      if (!credential) {
+        console.error('[AuthController] No credential provided');
+        throw new UnauthorizedException('No credential provided');
+      }
       
       // Décoder le token JWT Google (ID Token)
       const { OAuth2Client } = require('google-auth-library');
-      const client = new OAuth2Client(this.configService.get<string>('GOOGLE_CLIENT_ID'));
+      const client = new OAuth2Client(clientId);
       
       const ticket = await client.verifyIdToken({
         idToken: credential,
-        audience: this.configService.get<string>('GOOGLE_CLIENT_ID'),
+        audience: clientId,
       });
       
       const payload = ticket.getPayload();
@@ -120,7 +132,8 @@ export class AuthController {
       const user = await this.authService.validateGoogleUser(googleUser);
       return this.authService.login(user);
     } catch (error) {
-      console.error('[AuthController] Google token login error:', error);
+      console.error('[AuthController] Google token login error:', error.message);
+      console.error('[AuthController] Error details:', error);
       throw new UnauthorizedException('Invalid Google token');
     }
   }
