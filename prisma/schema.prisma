@@ -30,10 +30,11 @@ model User {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   
-  bookings  Booking[]
-  reviews   Review[]
-  incidents Incident[]
-  favorites Favorite[]
+  bookings      Booking[]
+  reviews       Review[]
+  incidents     Incident[]
+  favorites     Favorite[]
+  notifications Notification[]
 }
 
 model Vehicle {
@@ -216,4 +217,32 @@ model SiteSettings {
   description     String?  // Description du paramètre
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+enum NotificationType {
+  RESERVATION_NEW
+  RESERVATION_CONFIRMED
+  RESERVATION_CANCELLED
+  RESERVATION_COMPLETED
+  PAYMENT_RECEIVED
+  REVIEW_NEW
+  INCIDENT_NEW
+  INCIDENT_UPDATED
+  SYSTEM
+}
+
+model Notification {
+  id          String           @id @default(uuid())
+  type        NotificationType
+  titleFr     String
+  titleEn     String
+  messageFr   String
+  messageEn   String
+  link        String?          // Lien vers la ressource concernée
+  isRead      Boolean          @default(false)
+  isGlobal    Boolean          @default(false) // Pour les notifications admin globales
+  userId      String?          // Null si notification globale admin
+  user        User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 }
