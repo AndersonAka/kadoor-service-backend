@@ -438,8 +438,12 @@ export class ReservationsService {
         },
       });
 
+      // Envoie les deux emails: confirmation de réservation ET confirmation de paiement
       this.emailService.sendReservationConfirmation(confirmed, confirmed.user.email).catch(
-        (err) => console.error('Erreur email confirmation:', err),
+        (err) => console.error('Erreur email confirmation réservation:', err),
+      );
+      this.emailService.sendPaymentConfirmation(confirmed, confirmed.user.email).catch(
+        (err) => console.error('Erreur email confirmation paiement:', err),
       );
 
       this.notificationsService
@@ -476,6 +480,12 @@ export class ReservationsService {
       }
 
       if (body.event === 'charge.success') {
+        // Vérifier à nouveau si déjà confirmé (évite les doublons avec verifyPayment)
+        const currentBooking = await this.prisma.booking.findUnique({ where: { id: existing.id } });
+        if (currentBooking?.status === 'CONFIRMED') {
+          return { status: 'ok', message: 'Already confirmed by verifyPayment' };
+        }
+
         const confirmed = await this.prisma.booking.update({
           where: { id: existing.id },
           data: { status: 'CONFIRMED' },
@@ -486,6 +496,10 @@ export class ReservationsService {
           },
         });
         if (confirmed.user?.email) {
+          // Envoie les deux emails si le webhook traite en premier
+          this.emailService
+            .sendReservationConfirmation(confirmed, confirmed.user.email)
+            .catch((err) => console.error('[Webhook] Reservation confirmation email error:', err));
           this.emailService
             .sendPaymentConfirmation(confirmed, confirmed.user.email)
             .catch((err) => console.error('[Webhook] Payment confirmation email error:', err));
