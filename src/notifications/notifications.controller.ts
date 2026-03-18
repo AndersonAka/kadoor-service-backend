@@ -17,6 +17,13 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { InAppNotificationsService } from './in-app-notifications.service';
 
+interface AuthenticatedRequest {
+  user: {
+    id: string;
+    role: string;
+  };
+}
+
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
 export class NotificationsController {
@@ -24,7 +31,7 @@ export class NotificationsController {
 
   @Get()
   async getUserNotifications(
-    @Request() req,
+    @Request() req: AuthenticatedRequest,
     @Query('page') page: string = '1',
     @Query('limit') limit: string = '20',
     @Query('unreadOnly') unreadOnly: string = 'false',
@@ -39,33 +46,33 @@ export class NotificationsController {
   }
 
   @Get('unread-count')
-  async getUnreadCount(@Request() req) {
+  async getUnreadCount(@Request() req: AuthenticatedRequest) {
     const userId = req.user.id;
     const isAdmin = req.user.role === 'ADMIN';
     return this.notificationsService.getUnreadCount(userId, isAdmin);
   }
 
   @Patch(':id/read')
-  async markAsRead(@Request() req, @Param('id') id: string) {
+  async markAsRead(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     const userId = req.user.id;
     return this.notificationsService.markAsRead(id, userId);
   }
 
   @Patch('read-all')
-  async markAllAsRead(@Request() req) {
+  async markAllAsRead(@Request() req: AuthenticatedRequest) {
     const userId = req.user.id;
     const isAdmin = req.user.role === 'ADMIN';
     return this.notificationsService.markAllAsRead(userId, isAdmin);
   }
 
   @Delete(':id')
-  async deleteNotification(@Request() req, @Param('id') id: string) {
+  async deleteNotification(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     const userId = req.user.id;
     return this.notificationsService.deleteNotification(id, userId);
   }
 
   @Delete()
-  async deleteAllRead(@Request() req) {
+  async deleteAllRead(@Request() req: AuthenticatedRequest) {
     const userId = req.user.id;
     const isAdmin = req.user.role === 'ADMIN';
     return this.notificationsService.deleteAllRead(userId, isAdmin);
