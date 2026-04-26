@@ -20,6 +20,10 @@ export class CreateApartmentDto {
   @IsNumber()
   pricePerNight: number;
 
+  @IsOptional()
+  @IsNumber()
+  cleaningFee?: number;
+
   @IsInt()
   bedrooms: number;
 

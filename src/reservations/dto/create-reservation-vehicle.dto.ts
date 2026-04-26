@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsDateString, IsString, IsOptional, IsNumber, IsIn } from 'class-validator';
+import { IsNotEmpty, IsDateString, IsString, IsOptional, IsNumber, IsIn, IsBoolean } from 'class-validator';
 
 export class CreateReservationVehicleDto {
   @IsNotEmpty()
@@ -37,4 +37,17 @@ export class CreateReservationVehicleDto {
   @IsOptional()
   @IsString()
   specialRequests?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  hasInsurance?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['TIER1', 'TIER2', 'TIER3'])
+  mileagePackage?: string;
+
+  @IsOptional()
+  @IsString()
+  promoCode?: string;
 }

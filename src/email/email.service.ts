@@ -49,26 +49,6 @@ export class EmailService {
   }
 
   /**
-   * Envoie un email de confirmation de paiement
-   */
-  async sendPaymentConfirmation(booking: any, userEmail: string): Promise<void> {
-    const subject = 'Confirmation de paiement - KADOOR SERVICE';
-    const template = this.getEmailTemplate('payment-confirmation');
-    const logoUrl = `${this.configService.get<string>('BACKEND_URL') || 'http://localhost:4000'}/logo_kadoor_service.png`;
-    
-    const html = template({
-      bookingId: booking.id,
-      userName: `${booking.user.firstName || ''} ${booking.user.lastName || ''}`.trim() || 'Client',
-      itemName: booking.vehicle?.title || booking.apartment?.title,
-      totalPrice: booking.totalPrice.toFixed(2),
-      paymentDate: new Date().toLocaleDateString('fr-FR'),
-      logoUrl,
-    });
-
-    await this.sendEmail(userEmail, subject, html);
-  }
-
-  /**
    * Envoie un email avec lien vers le contrat
    * Note: OneSignal ne supporte pas les pièces jointes, on inclut un lien de téléchargement
    */
@@ -168,6 +148,51 @@ export class EmailService {
   }
 
   /**
+   * Notifie l'admin d'un nouveau message de contact
+   */
+  async sendContactNotification(contact: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string | null;
+    subject: string;
+    message: string;
+    createdAt: Date;
+  }): Promise<void> {
+    const adminEmail = this.configService.get<string>('ADMIN_EMAIL');
+    if (!adminEmail) return;
+
+    const subject = `Nouveau message de contact — ${contact.subject}`;
+    const html = `
+      <!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;color:#333;background:#f5f5f5;margin:0;padding:20px;">
+        <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.1);">
+          <div style="background:#b91c1c;padding:24px;text-align:center;">
+            <h2 style="color:#fff;margin:0;">Nouveau message de contact</h2>
+          </div>
+          <div style="padding:28px;">
+            <table style="width:100%;border-collapse:collapse;font-size:14px;">
+              <tr><td style="padding:8px 0;color:#666;width:130px;">Expéditeur</td><td style="padding:8px 0;font-weight:600;">${contact.firstName} ${contact.lastName}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Email</td><td style="padding:8px 0;">${contact.email}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Téléphone</td><td style="padding:8px 0;">${contact.phone || '—'}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Sujet</td><td style="padding:8px 0;font-weight:600;">${contact.subject}</td></tr>
+              <tr><td style="padding:8px 0;color:#666;">Date</td><td style="padding:8px 0;">${new Date(contact.createdAt).toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td></tr>
+            </table>
+            <div style="margin-top:16px;padding:16px;background:#f8f9fa;border-left:4px solid #b91c1c;border-radius:4px;">
+              <p style="margin:0;white-space:pre-wrap;">${contact.message}</p>
+            </div>
+          </div>
+          <div style="padding:16px;text-align:center;font-size:12px;color:#999;border-top:1px solid #eee;">
+            KADOOR SERVICE — Message envoyé depuis le formulaire de contact
+          </div>
+        </div>
+      </body></html>
+    `;
+
+    await this.sendEmail(adminEmail, subject, html);
+  }
+
+  /**
    * Envoie un email via OneSignal
    */
   private async sendEmail(
@@ -258,59 +283,6 @@ export class EmailService {
               </div>
 
               <p>Si vous avez des questions, n'hésitez pas à nous contacter.</p>
-              <p style="margin-top: 30px;">Cordialement,<br><strong>L'équipe KADOOR SERVICE</strong></p>
-            </div>
-            <div class="footer">
-              <p><strong>KADOOR SERVICE</strong></p>
-              <p>Abidjan, Côte d'Ivoire</p>
-              <p>Cet email est généré automatiquement, merci de ne pas y répondre.</p>
-            </div>
-          </div>
-        </body>
-        </html>
-      `,
-      'payment-confirmation': `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8">
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f5f5f5; }
-            .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
-            .header { background-color: #ffffff; padding: 20px; text-align: center; border-bottom: 4px solid #b91c1c; }
-            .header img { max-width: 180px; height: auto; }
-            .header h1 { color: #b91c1c; margin: 15px 0 0 0; font-size: 22px; }
-            .content { padding: 30px; background-color: #ffffff; }
-            .details-box { background-color: #f8f9fa; border-radius: 8px; padding: 20px; margin: 20px 0; }
-            .details-box h3 { margin-top: 0; color: #b91c1c; }
-            .details-box ul { list-style: none; padding: 0; margin: 0; }
-            .details-box li { padding: 8px 0; border-bottom: 1px solid #e0e0e0; }
-            .details-box li:last-child { border-bottom: none; }
-            .success-badge { background-color: #dcfce7; color: #166534; padding: 10px 20px; border-radius: 20px; display: inline-block; font-weight: bold; margin: 10px 0; }
-            .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; background-color: #f8f9fa; border-top: 1px solid #e0e0e0; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <img src="{{logoUrl}}" alt="KADOOR SERVICE" />
-              <h1>Confirmation de Paiement</h1>
-            </div>
-            <div class="content">
-              <p>Bonjour <strong>{{userName}}</strong>,</p>
-              <p style="text-align: center;"><span class="success-badge">✓ Paiement reçu avec succès</span></p>
-              
-              <div class="details-box">
-                <h3>Détails du paiement</h3>
-                <ul>
-                  <li><strong>N° Réservation :</strong> {{bookingId}}</li>
-                  <li><strong>Service :</strong> {{itemName}}</li>
-                  <li><strong>Montant payé :</strong> {{totalPrice}} FCFA</li>
-                  <li><strong>Date de paiement :</strong> {{paymentDate}}</li>
-                </ul>
-              </div>
-
-              <p>Merci pour votre confiance !</p>
               <p style="margin-top: 30px;">Cordialement,<br><strong>L'équipe KADOOR SERVICE</strong></p>
             </div>
             <div class="footer">

@@ -8,7 +8,21 @@ import { ApartmentsService } from '../apartments/apartments.service';
 import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PaystackService } from './paystack.service';
+import { SettingsService } from '../settings/settings.service';
+import { PromoCodesService } from '../promo-codes/promo-codes.service';
 import { v4 as uuidv4 } from 'uuid';
+
+/** Clés SiteSettings — assurance véhicule */
+const INSURANCE_PRICE_KEY = 'vehicleInsurancePrice';
+const INSURANCE_DISCOUNT_KEY = 'vehicleInsuranceDiscountPercent';
+
+/** Clés SiteSettings — forfaits kilométriques */
+const MILEAGE_TIER1_KM_KEY   = 'mileage_tier1_limit';          // km/jour inclus (défaut 100)
+const MILEAGE_TIER1_PRICE_KEY = 'mileage_tier1_price_per_km';  // FCFA/km (défaut 300)
+const MILEAGE_TIER2_KM_KEY   = 'mileage_tier2_limit';          // km/jour inclus (défaut 200)
+const MILEAGE_TIER2_PRICE_KEY = 'mileage_tier2_price_per_km';  // FCFA/km (défaut 270)
+const MILEAGE_TIER3_KM_KEY   = 'mileage_tier3_limit';          // km/jour inclus (défaut 250)
+const MILEAGE_TIER3_PRICE_KEY = 'mileage_tier3_price_per_km';  // FCFA/km (défaut 280)
 
 @Injectable()
 export class ReservationsService {
@@ -20,6 +34,8 @@ export class ReservationsService {
     private notificationsService: NotificationsService,
     private paystackService: PaystackService,
     private configService: ConfigService,
+    private settingsService: SettingsService,
+    private promoCodesService: PromoCodesService,
   ) {}
 
   /**
@@ -28,7 +44,8 @@ export class ReservationsService {
   private calculateDays(startDate: Date, endDate: Date): number {
     const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays || 1; // Minimum 1 jour
+    // Logique de nuitée : 27/04 → 03/05 = 6 jours facturés (pas 7)
+    return Math.max(diffDays - 1, 1);
   }
 
   /**
@@ -292,10 +309,130 @@ export class ReservationsService {
 
   // ─── Paystack Payment Methods ──────────────────────────────────────────
 
+  /**
+   * Lit un paramètre numérique dans SiteSettings.
+   * Retourne `defaultValue` si la clé est absente ou invalide.
+   */
+  private async getNumericSetting(key: string, defaultValue: number): Promise<number> {
+    const setting = await this.settingsService.findByKey(key);
+    if (!setting) return defaultValue;
+    const parsed = parseFloat(setting.value);
+    return isNaN(parsed) ? defaultValue : parsed;
+  }
+
+  /**
+   * Calcule le supplément assurance et la réduction appliquée au prix de base.
+   * - insurancePrice  : montant fixe ajouté (lu dans SiteSettings, défaut 15 000 FCFA)
+   * - discountPercent : taux de réduction sur le prix de base (lu dans SiteSettings, défaut 0 %)
+   * Formule : totalPrice = basePrice * (1 - discount%) + insurancePrice
+   */
+  private async computeInsurance(basePrice: number): Promise<{
+    insurancePrice: number;
+    insuranceDiscount: number;
+    totalWithInsurance: number;
+  }> {
+    const insurancePrice = await this.getNumericSetting(INSURANCE_PRICE_KEY, 15_000);
+    const discountPercent = await this.getNumericSetting(INSURANCE_DISCOUNT_KEY, 0);
+
+    const insuranceDiscount = Math.round(basePrice * (discountPercent / 100));
+    const totalWithInsurance = basePrice - insuranceDiscount + insurancePrice;
+
+    return { insurancePrice, insuranceDiscount, totalWithInsurance };
+  }
+
+  /**
+   * Calcule le coût d'un forfait kilométrique sur la durée du séjour.
+   * coût = kmInclus_par_jour × prixParKm × nbJours
+   */
+  private async computeMileageCost(
+    tier: 'TIER1' | 'TIER2' | 'TIER3',
+    days: number,
+  ): Promise<number> {
+    let kmKey: string, priceKey: string, defaultKm: number, defaultPrice: number;
+
+    if (tier === 'TIER1') {
+      kmKey = MILEAGE_TIER1_KM_KEY; priceKey = MILEAGE_TIER1_PRICE_KEY; defaultKm = 100; defaultPrice = 300;
+    } else if (tier === 'TIER2') {
+      kmKey = MILEAGE_TIER2_KM_KEY; priceKey = MILEAGE_TIER2_PRICE_KEY; defaultKm = 200; defaultPrice = 270;
+    } else {
+      kmKey = MILEAGE_TIER3_KM_KEY; priceKey = MILEAGE_TIER3_PRICE_KEY; defaultKm = 250; defaultPrice = 280;
+    }
+
+    const kmPerDay    = await this.getNumericSetting(kmKey, defaultKm);
+    const pricePerKm  = await this.getNumericSetting(priceKey, defaultPrice);
+
+    return Math.round(kmPerDay * pricePerKm * days);
+  }
+
+  /**
+   * Applique éventuellement un code promo sur un montant.
+   * Lance une exception si le code est invalide.
+   */
+  private async applyPromoCode(
+    code: string | undefined,
+    amount: number,
+    itemType: 'VEHICLE' | 'APARTMENT',
+  ): Promise<{ promoCode: string | null; promoCodeId: string | null; promoDiscount: number | null; finalAmount: number }> {
+    if (!code || !code.trim()) {
+      return { promoCode: null, promoCodeId: null, promoDiscount: null, finalAmount: amount };
+    }
+
+    const result = await this.promoCodesService.validate(code, amount, itemType);
+    if (!result.valid || !result.promo) {
+      throw new BadRequestException(result.reason || 'Code promo invalide');
+    }
+
+    return {
+      promoCode: result.promo.code,
+      promoCodeId: result.promo.id,
+      promoDiscount: result.promo.discount,
+      finalAmount: result.promo.finalAmount,
+    };
+  }
+
   private buildCallbackUrl(bookingId: string): string {
     const webAppUrl = this.configService.get<string>('WEB_APP_URL') || 'http://localhost:3000';
     const defaultLocale = this.configService.get<string>('WEB_APP_DEFAULT_LOCALE') || 'fr';
     return `${webAppUrl}/${defaultLocale}/payment/callback?bookingId=${bookingId}`;
+  }
+
+  /** Include utilisé pour les emails / réponses après confirmation de paiement */
+  private getBookingConfirmationInclude() {
+    return {
+      vehicle: true,
+      apartment: true,
+      user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } },
+    };
+  }
+
+  /**
+   * Passe la réservation de PENDING à CONFIRMED de façon atomique.
+   * Évite les doubles envois d'email lorsque verifyPayment et le webhook Paystack
+   * (ou des retries webhook) arrivent en concurrence.
+   */
+  private async tryTransitionBookingToConfirmed(
+    bookingId: string,
+    options?: { paystackReference?: string },
+  ) {
+    const where: { id: string; status: string; paystackReference?: string } = {
+      id: bookingId,
+      status: 'PENDING',
+    };
+    if (options?.paystackReference) {
+      where.paystackReference = options.paystackReference;
+    }
+
+    const updateResult = await this.prisma.booking.updateMany({
+      where,
+      data: { status: 'CONFIRMED' },
+    });
+
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: this.getBookingConfirmationInclude(),
+    });
+
+    return { transitioned: updateResult.count > 0, booking };
   }
 
   /**
@@ -323,8 +460,33 @@ export class ReservationsService {
     if (!vehicle) throw new NotFoundException('Véhicule non trouvé');
 
     const days = this.calculateDays(start, end);
-    const totalPrice = vehicle.pricePerDay * days;
+    const basePrice = vehicle.pricePerDay * days;
     const paystackReference = uuidv4();
+
+    // 1. Forfait kilométrique (s'ajoute au prix de base)
+    let mileagePackageCost: number | null = null;
+    if (dto.mileagePackage) {
+      mileagePackageCost = await this.computeMileageCost(dto.mileagePackage as 'TIER1' | 'TIER2' | 'TIER3', days);
+    }
+
+    // 2. Prix intermédiaire : base + forfait km
+    const priceWithMileage = basePrice + (mileagePackageCost ?? 0);
+
+    // 3. Option assurance (réduction sur le prix intermédiaire + montant fixe)
+    let totalPrice = priceWithMileage;
+    let insurancePrice: number | null = null;
+    let insuranceDiscount: number | null = null;
+
+    if (dto.hasInsurance) {
+      const insurance = await this.computeInsurance(priceWithMileage);
+      totalPrice = insurance.totalWithInsurance;
+      insurancePrice = insurance.insurancePrice;
+      insuranceDiscount = insurance.insuranceDiscount;
+    }
+
+    // 4. Code promo (s'applique sur le total après assurance)
+    const promo = await this.applyPromoCode(dto.promoCode, totalPrice, 'VEHICLE');
+    totalPrice = promo.finalAmount;
 
     const booking = await this.prisma.booking.create({
       data: {
@@ -335,6 +497,14 @@ export class ReservationsService {
         totalPrice,
         status: 'PENDING',
         paystackReference,
+        hasInsurance: dto.hasInsurance ?? false,
+        insurancePrice,
+        insuranceDiscount,
+        mileagePackage: dto.mileagePackage ?? null,
+        mileagePackageCost,
+        promoCode: promo.promoCode,
+        promoCodeId: promo.promoCodeId,
+        promoDiscount: promo.promoDiscount,
       },
       include: {
         vehicle: true,
@@ -379,8 +549,14 @@ export class ReservationsService {
     if (!apartment) throw new NotFoundException('Appartement non trouvé');
 
     const days = this.calculateDays(start, end);
-    const totalPrice = apartment.pricePerNight * days;
+    const nightsPrice = apartment.pricePerNight * days;
+    const cleaningFee = apartment.cleaningFee ?? 0;
+    let totalPrice = nightsPrice + cleaningFee;
     const paystackReference = uuidv4();
+
+    // Code promo
+    const promo = await this.applyPromoCode(dto.promoCode, totalPrice, 'APARTMENT');
+    totalPrice = promo.finalAmount;
 
     const booking = await this.prisma.booking.create({
       data: {
@@ -389,8 +565,12 @@ export class ReservationsService {
         startDate: start,
         endDate: end,
         totalPrice,
+        cleaningFee: cleaningFee > 0 ? cleaningFee : null,
         status: 'PENDING',
         paystackReference,
+        promoCode: promo.promoCode,
+        promoCodeId: promo.promoCodeId,
+        promoDiscount: promo.promoDiscount,
       },
       include: {
         apartment: true,
@@ -418,7 +598,11 @@ export class ReservationsService {
     if (!booking) throw new NotFoundException('Réservation non trouvée');
 
     if (booking.status === 'CONFIRMED') {
-      return { booking, status: 'success', message: 'Paiement déjà confirmé' };
+      const full = await this.prisma.booking.findUnique({
+        where: { id: bookingId },
+        include: this.getBookingConfirmationInclude(),
+      });
+      return { booking: full, status: 'success', message: 'Paiement déjà confirmé' };
     }
 
     if (!booking.paystackReference) {
@@ -428,27 +612,27 @@ export class ReservationsService {
     const verification = await this.paystackService.verifyTransaction(booking.paystackReference);
 
     if (verification.status === 'success') {
-      const confirmed = await this.prisma.booking.update({
-        where: { id: bookingId },
-        data: { status: 'CONFIRMED' },
-        include: {
-          vehicle: true,
-          apartment: true,
-          user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } },
-        },
-      });
+      const { transitioned, booking: confirmed } = await this.tryTransitionBookingToConfirmed(bookingId);
+      if (!confirmed) throw new NotFoundException('Réservation non trouvée');
 
-      // Envoie les deux emails: confirmation de réservation ET confirmation de paiement
-      this.emailService.sendReservationConfirmation(confirmed, confirmed.user.email).catch(
-        (err) => console.error('Erreur email confirmation réservation:', err),
-      );
-      this.emailService.sendPaymentConfirmation(confirmed, confirmed.user.email).catch(
-        (err) => console.error('Erreur email confirmation paiement:', err),
-      );
+      // Un seul flux (verifyPayment ou webhook) envoie l'email après la transition atomique
+      // (pas d'email de paiement : Paystack notifie déjà le client)
+      if (transitioned && confirmed.user?.email) {
+        this.emailService.sendReservationConfirmation(confirmed, confirmed.user.email).catch(
+          (err) => console.error('Erreur email confirmation réservation:', err),
+        );
 
-      this.notificationsService
-        .sendReservationConfirmation(confirmed.userId, bookingId, confirmed.vehicle ? 'vehicle' : 'apartment')
-        .catch((err) => console.error('[verifyPayment] Push notification error:', err));
+        // Incrémente l'utilisation du code promo (une seule fois)
+        if (confirmed.promoCodeId) {
+          this.promoCodesService
+            .incrementUsage(confirmed.promoCodeId)
+            .catch((err) => console.error('[verifyPayment] Promo usage error:', err));
+        }
+
+        this.notificationsService
+          .sendReservationConfirmation(confirmed.userId, bookingId, confirmed.vehicle ? 'vehicle' : 'apartment')
+          .catch((err) => console.error('[verifyPayment] Push notification error:', err));
+      }
 
       return { booking: confirmed, status: 'success', paystackStatus: verification.status };
     }
@@ -480,44 +664,41 @@ export class ReservationsService {
       }
 
       if (body.event === 'charge.success') {
-        // Vérifier à nouveau si déjà confirmé (évite les doublons avec verifyPayment)
-        const currentBooking = await this.prisma.booking.findUnique({ where: { id: existing.id } });
-        if (currentBooking?.status === 'CONFIRMED') {
-          return { status: 'ok', message: 'Already confirmed by verifyPayment' };
-        }
-
-        const confirmed = await this.prisma.booking.update({
-          where: { id: existing.id },
-          data: { status: 'CONFIRMED' },
-          include: {
-            vehicle: true,
-            apartment: true,
-            user: { select: { id: true, email: true, firstName: true, lastName: true } },
-          },
+        const { transitioned, booking: confirmed } = await this.tryTransitionBookingToConfirmed(existing.id, {
+          paystackReference: reference,
         });
-        if (confirmed.user?.email) {
-          // Envoie les deux emails si le webhook traite en premier
+        if (transitioned && confirmed?.user?.email) {
           this.emailService
             .sendReservationConfirmation(confirmed, confirmed.user.email)
             .catch((err) => console.error('[Webhook] Reservation confirmation email error:', err));
-          this.emailService
-            .sendPaymentConfirmation(confirmed, confirmed.user.email)
-            .catch((err) => console.error('[Webhook] Payment confirmation email error:', err));
+
+          if (confirmed.promoCodeId) {
+            this.promoCodesService
+              .incrementUsage(confirmed.promoCodeId)
+              .catch((err) => console.error('[Webhook] Promo usage error:', err));
+          }
+
           this.notificationsService
             .sendReservationConfirmation(confirmed.userId, confirmed.id, confirmed.vehicle ? 'vehicle' : 'apartment')
             .catch((err) => console.error('[Webhook] Push notification error:', err));
         }
       } else {
-        const cancelled = await this.prisma.booking.update({
-          where: { id: existing.id },
+        const cancelResult = await this.prisma.booking.updateMany({
+          where: { id: existing.id, status: 'PENDING', paystackReference: reference },
           data: { status: 'CANCELLED' },
+        });
+        if (cancelResult.count === 0) {
+          return { status: 'ok', message: 'Already processed' };
+        }
+        const cancelled = await this.prisma.booking.findUnique({
+          where: { id: existing.id },
           include: {
             vehicle: true,
             apartment: true,
             user: { select: { id: true, email: true, firstName: true, lastName: true } },
           },
         });
-        if (cancelled.user?.email) {
+        if (cancelled?.user?.email) {
           this.emailService
             .sendCancellationEmail(cancelled, cancelled.user.email)
             .catch((err) => console.error('[Webhook] Cancellation email error:', err));

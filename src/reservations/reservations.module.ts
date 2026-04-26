@@ -10,9 +10,11 @@ import { DocumentsModule } from '../documents/documents.module';
 import { EmailModule } from '../email/email.module';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { SettingsModule } from '../settings/settings.module';
+import { PromoCodesModule } from '../promo-codes/promo-codes.module';
 
 @Module({
-  imports: [ConfigModule, PrismaModule, VehiclesModule, ApartmentsModule, DocumentsModule, EmailModule, AuthModule, NotificationsModule],
+  imports: [ConfigModule, PrismaModule, VehiclesModule, ApartmentsModule, DocumentsModule, EmailModule, AuthModule, NotificationsModule, SettingsModule, PromoCodesModule],
   providers: [ReservationsService, PaystackService],
   controllers: [ReservationsController],
   exports: [ReservationsService],

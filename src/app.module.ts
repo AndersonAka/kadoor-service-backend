@@ -19,6 +19,8 @@ import { TestimonialsModule } from './testimonials/testimonials.module';
 import { FavoritesModule } from './favorites/favorites.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SettingsModule } from './settings/settings.module';
+import { ContactModule } from './contact/contact.module';
+import { PromoCodesModule } from './promo-codes/promo-codes.module';
 
 @Module({
   imports: [
@@ -42,6 +44,8 @@ import { SettingsModule } from './settings/settings.module';
     FavoritesModule,
     NotificationsModule,
     SettingsModule,
+    ContactModule,
+    PromoCodesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

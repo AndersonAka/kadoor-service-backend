@@ -63,21 +63,22 @@ model Vehicle {
 }
 
 model Apartment {
-  id          String   @id @default(uuid())
-  title       String
-  description String
-  type        String?  // Studio, T1, T2, T3, T4, Villa, etc.
-  address     String
-  city        String
+  id            String   @id @default(uuid())
+  title         String
+  description   String
+  type          String?  // Studio, T1, T2, T3, T4, Villa, etc.
+  address       String
+  city          String
   pricePerNight Float
-  bedrooms    Int
-  bathrooms   Int
-  area        Float
-  images      String[]
-  features    String[]
-  isAvailable Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  cleaningFee   Float    @default(0) // Frais de nettoyage (forfait unique par séjour)
+  bedrooms      Int
+  bathrooms     Int
+  area          Float
+  images        String[]
+  features      String[]
+  isAvailable   Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   bookings    Booking[]
   reviews     Review[]
@@ -106,6 +107,25 @@ model Booking {
   totalPrice        Float
   status            String   @default("PENDING") // PENDING, CONFIRMED, CANCELLED, COMPLETED
   paystackReference String?  // UUID reference used for Paystack payment tracking
+
+  // Option assurance supplémentaire (véhicule uniquement)
+  hasInsurance      Boolean  @default(false)
+  insurancePrice    Float?   // Montant fixe de l'assurance ajouté au total
+  insuranceDiscount Float?   // Montant de réduction appliqué sur le prix de base
+
+  // Frais de nettoyage (appartement uniquement, forfait unique par séjour)
+  cleaningFee       Float?
+
+  // Forfait kilométrique (véhicule uniquement)
+  mileagePackage    String? // TIER1 (<100 km/j) | TIER2 (100-200 km/j) | TIER3 (201-250 km/j)
+  mileagePackageCost Float? // Coût total du forfait sur la durée du séjour
+
+  // Code promo / rabais
+  promoCode         String?  // Code utilisé (snapshot à la réservation)
+  promoCodeId       String?
+  promoCodeRel      PromoCode? @relation(fields: [promoCodeId], references: [id])
+  promoDiscount     Float?   // Montant de réduction appliqué
+
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -208,6 +228,39 @@ model Incident {
   images      String[]       // Photos de l'incident
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+}
+
+model PromoCode {
+  id             String   @id @default(uuid())
+  code           String   @unique           // Le code à saisir (insensible à la casse côté API)
+  description    String?
+  discountType   String   @default("PERCENT") // PERCENT | FIXED
+  discountValue  Float                         // Valeur (% si PERCENT, FCFA si FIXED)
+  minAmount      Float?                        // Montant minimum de la réservation (optionnel)
+  maxUses        Int?                          // Nombre maximum d'utilisations (null = illimité)
+  usedCount      Int      @default(0)
+  validFrom      DateTime?
+  validUntil     DateTime?
+  isActive       Boolean  @default(true)
+  appliesTo      String   @default("ALL")      // ALL | VEHICLE | APARTMENT
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  bookings       Booking[]
+}
+
+model ContactMessage {
+  id        String   @id @default(uuid())
+  firstName String
+  lastName  String
+  email     String
+  phone     String?
+  subject   String
+  message   String
+  isRead    Boolean  @default(false)
+  status    String   @default("NEW") // NEW, READ, REPLIED, ARCHIVED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model SiteSettings {

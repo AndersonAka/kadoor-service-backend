@@ -29,4 +29,8 @@ export class CreateReservationApartmentDto {
   @IsOptional()
   @IsString()
   specialRequests?: string;
+
+  @IsOptional()
+  @IsString()
+  promoCode?: string;
 }
