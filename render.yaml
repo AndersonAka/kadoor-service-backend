@@ -5,7 +5,8 @@ services:
     runtime: node
     plan: free  # Changez pour 'starter' ou 'standard' en production
     region: frankfurt  # Régions disponibles: oregon, frankfurt, singapore, etc.
-    buildCommand: npm install && npm run build
+    # npm ci + build moins gourmand en RAM (plan free ~512 Mo)
+    buildCommand: npm ci --no-audit --no-fund && npm run build
     startCommand: npm run start:prod
     envVars:
       # Base de données (Neon PostgreSQL)
@@ -20,9 +21,9 @@ services:
       # Port (géré automatiquement par Render)
       - key: PORT
         value: 10000
-      # Node.js Memory Options (pour éviter les erreurs de mémoire pendant le build)
+      # Garder le tas V8 sous la limite du plan (~512 Mo). 2048 provoquait des OOM sur Render free.
       - key: NODE_OPTIONS
-        value: --max-old-space-size=2048
+        value: --max-old-space-size=460
     healthCheckPath: /
     # Auto-deploy depuis la branche principale
     branch: main  # Changez selon votre branche principale
