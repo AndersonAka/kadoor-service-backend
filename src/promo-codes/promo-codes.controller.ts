@@ -15,6 +15,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PromoCodesService } from './promo-codes.service';
 import { CreatePromoCodeDto } from './dto/create-promo-code.dto';
+import { GeneratePromoCodeDto } from './dto/generate-promo-code.dto';
 import { UpdatePromoCodeDto } from './dto/update-promo-code.dto';
 import { ValidatePromoCodeDto } from './dto/validate-promo-code.dto';
 import { Roles } from '../auth/roles.decorator';
@@ -48,9 +49,21 @@ export class PromoCodesController {
   @Roles('ADMIN', 'MANAGER')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Générer un code promo aléatoire (admin)' })
-  generate(@Body() dto: CreatePromoCodeDto & { prefix?: string }) {
-    const code = dto.code?.trim() ? dto.code : this.service.generateCode(dto.prefix);
-    return this.service.create({ ...dto, code });
+  generate(@Body() dto: GeneratePromoCodeDto) {
+    const trimmed = dto.code?.trim();
+    const code = trimmed ? trimmed : this.service.generateCode(dto.prefix);
+    return this.service.create({
+      code,
+      description: dto.description,
+      discountType: dto.discountType,
+      discountValue: dto.discountValue ?? 10,
+      minAmount: dto.minAmount,
+      maxUses: dto.maxUses,
+      validFrom: dto.validFrom,
+      validUntil: dto.validUntil,
+      isActive: dto.isActive,
+      appliesTo: dto.appliesTo,
+    });
   }
 
   @Get()

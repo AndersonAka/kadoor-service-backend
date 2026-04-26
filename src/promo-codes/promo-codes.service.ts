@@ -111,18 +111,25 @@ export class PromoCodesService {
     const existing = await this.prisma.promoCode.findUnique({ where: { code } });
     if (existing) throw new ConflictException('Ce code existe déjà');
 
-    if (dto.discountType === 'PERCENT' && dto.discountValue > 100) {
+    const discountType = dto.discountType ?? 'PERCENT';
+    const discountValue = dto.discountValue;
+
+    if (discountType === 'PERCENT' && discountValue > 100) {
       throw new BadRequestException('La réduction en pourcentage ne peut excéder 100');
     }
 
     return this.prisma.promoCode.create({
       data: {
-        ...dto,
         code,
-        discountType: dto.discountType ?? 'PERCENT',
-        appliesTo: dto.appliesTo ?? 'ALL',
+        description: dto.description ?? null,
+        discountType,
+        discountValue,
+        minAmount: dto.minAmount ?? null,
+        maxUses: dto.maxUses ?? null,
         validFrom: dto.validFrom ? new Date(dto.validFrom) : null,
         validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
+        isActive: dto.isActive ?? true,
+        appliesTo: dto.appliesTo ?? 'ALL',
       },
     });
   }
