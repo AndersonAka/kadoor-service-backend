@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { PromoCodesService } from './promo-codes.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -15,11 +16,16 @@ describe('PromoCodesService', () => {
     },
   };
 
+  const mockConfig = {
+    get: jest.fn((key: string) => (key === 'PROMO_VALIDITY_TIMEZONE' ? 'Africa/Abidjan' : undefined)),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PromoCodesService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: ConfigService, useValue: mockConfig },
       ],
     }).compile();
 
@@ -103,6 +109,35 @@ describe('PromoCodesService', () => {
       expect(r.valid).toBe(true);
       expect(r.promo?.discount).toBe(10_000);
       expect(r.promo?.finalAmount).toBe(40_000);
+    });
+
+    it('validFrom: jour calendaire fuseau métier (évite « pas encore actif » le jour J en Europe)', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-05-02T23:00:00.000Z')); // 03/05 01:00 à Paris (CEST)
+      const parisConfig = {
+        get: jest.fn((k: string) => (k === 'PROMO_VALIDITY_TIMEZONE' ? 'Europe/Paris' : undefined)),
+      };
+      const mod = await Test.createTestingModule({
+        providers: [
+          PromoCodesService,
+          { provide: PrismaService, useValue: mockPrisma },
+          { provide: ConfigService, useValue: parisConfig },
+        ],
+      }).compile();
+      const svc = mod.get(PromoCodesService);
+      mockPrisma.promoCode.findUnique.mockResolvedValue({
+        id: '1',
+        code: 'X',
+        isActive: true,
+        validFrom: new Date('2026-05-03T00:00:00.000Z'),
+        discountType: 'PERCENT',
+        discountValue: 10,
+        appliesTo: 'ALL',
+        usedCount: 0,
+      });
+      const r = await svc.validate('X', 10_000);
+      expect(r.valid).toBe(true);
+      jest.useRealTimers();
     });
   });
 

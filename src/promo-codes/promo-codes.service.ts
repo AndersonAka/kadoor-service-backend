@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePromoCodeDto } from './dto/create-promo-code.dto';
 import { UpdatePromoCodeDto } from './dto/update-promo-code.dto';
@@ -24,7 +25,30 @@ export interface PromoValidationResult {
 
 @Injectable()
 export class PromoCodesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private config: ConfigService,
+  ) {}
+
+  /** Fuseau pour interpréter validFrom / validUntil comme jours calendaires « métier » (évite UTC vs local). */
+  private getPromoValidityTimeZone(): string {
+    return this.config.get<string>('PROMO_VALIDITY_TIMEZONE') || 'Africa/Abidjan';
+  }
+
+  /** YYYY-MM-DD du jour calendaire de `d` dans le fuseau `timeZone`. */
+  private calendarDateInZone(d: Date, timeZone: string): string {
+    const dtf = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const parts = dtf.formatToParts(d);
+    const y = parts.find((p) => p.type === 'year')?.value;
+    const m = parts.find((p) => p.type === 'month')?.value;
+    const day = parts.find((p) => p.type === 'day')?.value;
+    return `${y}-${m}-${day}`;
+  }
 
   private normalize(code: string): string {
     return code.trim().toUpperCase();
@@ -55,12 +79,20 @@ export class PromoCodesService {
     if (!promo) return { valid: false, reason: 'Code promo introuvable' };
     if (!promo.isActive) return { valid: false, reason: 'Code promo désactivé' };
 
-    const now = new Date();
-    if (promo.validFrom && now < promo.validFrom) {
-      return { valid: false, reason: 'Code promo pas encore actif' };
+    const tz = this.getPromoValidityTimeZone();
+    const todayCal = this.calendarDateInZone(new Date(), tz);
+
+    if (promo.validFrom) {
+      const fromCal = this.calendarDateInZone(promo.validFrom, tz);
+      if (todayCal < fromCal) {
+        return { valid: false, reason: 'Code promo pas encore actif' };
+      }
     }
-    if (promo.validUntil && now > promo.validUntil) {
-      return { valid: false, reason: 'Code promo expiré' };
+    if (promo.validUntil) {
+      const untilCal = this.calendarDateInZone(promo.validUntil, tz);
+      if (todayCal > untilCal) {
+        return { valid: false, reason: 'Code promo expiré' };
+      }
     }
     if (promo.maxUses != null && promo.usedCount >= promo.maxUses) {
       return { valid: false, reason: 'Code promo épuisé' };
