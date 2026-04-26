@@ -44,8 +44,9 @@ export class ReservationsService {
   private calculateDays(startDate: Date, endDate: Date): number {
     const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    // Logique de nuitée : 27/04 → 03/05 = 6 jours facturés (pas 7)
-    return Math.max(diffDays - 1, 1);
+    // Nuits / jours de location : date de fin = jour de départ (exclu du séjour).
+    // Ex. entrée 27/04, départ 03/05 → 6 nuits (27→28, …, 02→03).
+    return Math.max(diffDays, 1);
   }
 
   /**
