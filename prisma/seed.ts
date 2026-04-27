@@ -16,8 +16,12 @@ const prisma = new PrismaClient({ adapter });
 
 async function main() {
   console.log('Cleaning up existing data...');
+  // Ordre respectant les FK (réservations, favoris, incidents, etc.)
   await prisma.booking.deleteMany();
+  await prisma.favorite.deleteMany();
+  await prisma.incident.deleteMany();
   await prisma.review.deleteMany();
+  await prisma.notification.deleteMany();
   await prisma.user.deleteMany();
   await prisma.heroSlide.deleteMany();
   await prisma.vehicle.deleteMany();
@@ -81,74 +85,172 @@ async function main() {
     await prisma.heroSlide.create({ data: slide });
   }
 
-  const defaultTypePricing = {
-    tier1MileageDailyAmount: 30000,
-    tier2MileageDailyAmount: 45000,
-    tier3MileageDailyAmount: 70000,
-    overagePricePerKm: 350,
-    insuranceAmount: 15000,
-    insuranceDiscountPercent: 0,
-  };
-
-  const typePricingSeeds = [
-    { vehicleType: 'Berline' },
-    { vehicleType: 'SUV' },
-    { vehicleType: 'Utilitaire' },
-    { vehicleType: 'Fourgonnette' },
-    { vehicleType: 'Luxe' },
-    { vehicleType: 'Pick-up' },
+  /** Montants journaliers par forfait km (FCFA) — varient légèrement selon le segment */
+  const typePricingSeeds: Array<{
+    vehicleType: string;
+    tier1MileageDailyAmount: number;
+    tier2MileageDailyAmount: number;
+    tier3MileageDailyAmount: number;
+    overagePricePerKm: number;
+    insuranceAmount: number;
+    insuranceDiscountPercent: number;
+  }> = [
+    {
+      vehicleType: 'Berline',
+      tier1MileageDailyAmount: 35000,
+      tier2MileageDailyAmount: 50000,
+      tier3MileageDailyAmount: 75000,
+      overagePricePerKm: 300,
+      insuranceAmount: 15000,
+      insuranceDiscountPercent: 5,
+    },
+    {
+      vehicleType: 'SUV',
+      tier1MileageDailyAmount: 45000,
+      tier2MileageDailyAmount: 60000,
+      tier3MileageDailyAmount: 90000,
+      overagePricePerKm: 350,
+      insuranceAmount: 18000,
+      insuranceDiscountPercent: 5,
+    },
+    {
+      vehicleType: 'Utilitaire',
+      tier1MileageDailyAmount: 28000,
+      tier2MileageDailyAmount: 40000,
+      tier3MileageDailyAmount: 62000,
+      overagePricePerKm: 280,
+      insuranceAmount: 12000,
+      insuranceDiscountPercent: 0,
+    },
+    {
+      vehicleType: 'Fourgonnette',
+      tier1MileageDailyAmount: 32000,
+      tier2MileageDailyAmount: 48000,
+      tier3MileageDailyAmount: 72000,
+      overagePricePerKm: 320,
+      insuranceAmount: 14000,
+      insuranceDiscountPercent: 0,
+    },
+    {
+      vehicleType: 'Luxe',
+      tier1MileageDailyAmount: 85000,
+      tier2MileageDailyAmount: 120000,
+      tier3MileageDailyAmount: 165000,
+      overagePricePerKm: 450,
+      insuranceAmount: 25000,
+      insuranceDiscountPercent: 8,
+    },
+    {
+      vehicleType: 'Pick-up',
+      tier1MileageDailyAmount: 38000,
+      tier2MileageDailyAmount: 55000,
+      tier3MileageDailyAmount: 82000,
+      overagePricePerKm: 340,
+      insuranceAmount: 16000,
+      insuranceDiscountPercent: 0,
+    },
   ];
 
   console.log('Seeding VehicleTypePricing...');
   for (const row of typePricingSeeds) {
     await prisma.vehicleTypePricing.create({
-      data: { ...defaultTypePricing, ...row },
+      data: {
+        vehicleType: row.vehicleType,
+        tier1MileageDailyAmount: row.tier1MileageDailyAmount,
+        tier2MileageDailyAmount: row.tier2MileageDailyAmount,
+        tier3MileageDailyAmount: row.tier3MileageDailyAmount,
+        overagePricePerKm: row.overagePricePerKm,
+        insuranceAmount: row.insuranceAmount,
+        insuranceDiscountPercent: row.insuranceDiscountPercent,
+      },
     });
   }
 
   console.log('Seeding Vehicles...');
   const vehicles = [
     {
-      title: "Toyota Land Cruiser Prado",
-      description: "Véhicule tout-terrain de luxe, idéal pour les longs trajets et le confort urbain.",
-      type: "SUV",
-      make: "Toyota",
-      model: "Land Cruiser Prado",
+      title: 'Toyota Land Cruiser Prado',
+      description: 'Véhicule tout-terrain de luxe, idéal pour les longs trajets et le confort urbain.',
+      type: 'SUV',
+      make: 'Toyota',
+      model: 'Land Cruiser Prado',
       year: 2022,
-      fuel: "Diesel",
-      transmission: "Automatique",
+      fuel: 'Diesel',
+      transmission: 'Automatique',
       seats: 7,
-      location: "Douala, Littoral",
-      images: ["https://images.unsplash.com/photo-1594502184342-2e12f877aa73?w=800"],
-      features: ["Climatisation", "GPS", "Cuir", "4x4"],
+      location: 'Douala, Littoral',
+      images: ['https://images.unsplash.com/photo-1594502184342-2e12f877aa73?w=800'],
+      features: ['Climatisation', 'GPS', 'Cuir', '4x4'],
     },
     {
-      title: "Mercedes-Benz Classe C",
-      description: "Berline élégante alliant performance et raffinement.",
-      type: "Berline",
-      make: "Mercedes-Benz",
-      model: "Classe C",
+      title: 'Mercedes-Benz Classe C',
+      description: 'Berline élégante alliant performance et raffinement.',
+      type: 'Berline',
+      make: 'Mercedes-Benz',
+      model: 'Classe C',
       year: 2021,
-      fuel: "Essence",
-      transmission: "Automatique",
+      fuel: 'Essence',
+      transmission: 'Automatique',
       seats: 5,
-      location: "Yaoundé, Centre",
-      images: ["https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=800"],
-      features: ["Climatisation", "Bluetooth", "Toit ouvrant"],
+      location: 'Yaoundé, Centre',
+      images: ['https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=800'],
+      features: ['Climatisation', 'Bluetooth', 'Toit ouvrant'],
     },
     {
-      title: "Ford Ranger Wildtrak",
-      description: "Pick-up puissant et polyvalent pour tous vos besoins logistiques.",
-      type: "Pick-up",
-      make: "Ford",
-      model: "Ranger Wildtrak",
+      title: 'Ford Ranger Wildtrak',
+      description: 'Pick-up puissant et polyvalent pour tous vos besoins logistiques.',
+      type: 'Pick-up',
+      make: 'Ford',
+      model: 'Ranger Wildtrak',
       year: 2023,
-      fuel: "Diesel",
-      transmission: "Automatique",
+      fuel: 'Diesel',
+      transmission: 'Automatique',
       seats: 5,
-      location: "Douala, Littoral",
-      images: ["https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=800"],
-      features: ["4x4", "Crochet de remorquage", "Régulateur de vitesse"],
+      location: 'Douala, Littoral',
+      images: ['https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=800'],
+      features: ['4x4', 'Crochet de remorquage', 'Régulateur de vitesse'],
+    },
+    {
+      title: 'Renault Master L2H2',
+      description: 'Utilitaire volumineux pour transport de marchandises ou équipes.',
+      type: 'Utilitaire',
+      make: 'Renault',
+      model: 'Master',
+      year: 2022,
+      fuel: 'Diesel',
+      transmission: 'Manuelle',
+      seats: 3,
+      location: 'Douala, Littoral',
+      images: ['https://images.unsplash.com/photo-1563720223185-11003d516935?w=800'],
+      features: ['Portes latérales', 'Hayon arrière', 'Système anti-blocage'],
+    },
+    {
+      title: 'Peugeot Boxer Fourgon',
+      description: 'Fourgonnette adaptée livraisons urbaines et artisans.',
+      type: 'Fourgonnette',
+      make: 'Peugeot',
+      model: 'Boxer',
+      year: 2021,
+      fuel: 'Diesel',
+      transmission: 'Manuelle',
+      seats: 3,
+      location: 'Yaoundé, Centre',
+      images: ['https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=800'],
+      features: ['Cargaison optimisée', 'Caméra de recul', 'Bluetooth'],
+    },
+    {
+      title: 'BMW Série 7',
+      description: 'Berline de prestige, confort maximal et technologies embarquées.',
+      type: 'Luxe',
+      make: 'BMW',
+      model: 'Série 7',
+      year: 2023,
+      fuel: 'Hybride',
+      transmission: 'Automatique',
+      seats: 5,
+      location: 'Abidjan, Cocody',
+      images: ['https://images.unsplash.com/photo-1555215695-3004980ad54e?w=800'],
+      features: ['Massage sièges', 'Pilotage adaptatif', 'Harman Kardon'],
     },
   ];
 
