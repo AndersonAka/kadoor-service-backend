@@ -60,22 +60,25 @@ export class ReservationsService {
     if (!vehicle) return null;
     const p = await this.prisma.vehicleTypePricing.findUnique({ where: { vehicleType: vehicle.type } });
     if (!p) {
-      return { ...vehicle, typePricing: null, fromPriceTier1: null, basePricePerDay: null } as T & {
+      return { ...vehicle, typePricing: null, fromPriceTier1: null } as T & {
         typePricing: VehicleTypePricing | null;
         fromPriceTier1: number | null;
-        basePricePerDay: number | null;
       };
     }
     return {
       ...vehicle,
       typePricing: p,
       fromPriceTier1: Math.round(p.tier1MileageDailyAmount),
-      basePricePerDay: p.basePricePerDay,
     } as T & {
       typePricing: VehicleTypePricing;
       fromPriceTier1: number;
-      basePricePerDay: number;
     };
+  }
+
+  /** Forfait km retenu pour le calcul (défaut : TIER1, moins de 100 km/j). */
+  private resolveVehicleMileageTier(mileagePackage?: string | null): 'TIER1' | 'TIER2' | 'TIER3' {
+    if (mileagePackage === 'TIER2' || mileagePackage === 'TIER3') return mileagePackage;
+    return 'TIER1';
   }
 
   private calculateDays(startDate: Date, endDate: Date): number {
@@ -126,13 +129,11 @@ export class ReservationsService {
     const typePricing = await this.getVehicleTypePricing(vehicle.type);
     const pricing = this.requireVehicleTypePricing(vehicle.type, typePricing);
 
-    // Calculer le prix total
     const days = this.calculateDays(start, end);
-    const basePrice = pricing.basePricePerDay * days;
-    // TODO: Ajouter les suppléments (conducteur additionnel, etc.)
-    const totalPrice = basePrice;
+    const tier = this.resolveVehicleMileageTier(dto.mileagePackage);
+    const mileagePackageCost = await this.computeMileageCost(tier, days, pricing);
+    const totalPrice = mileagePackageCost;
 
-    // Créer la réservation
     const reservation = await this.prisma.booking.create({
       data: {
         userId,
@@ -141,6 +142,8 @@ export class ReservationsService {
         endDate: end,
         totalPrice,
         status: 'PENDING',
+        mileagePackage: tier,
+        mileagePackageCost,
       },
       include: {
         vehicle: true,
@@ -393,8 +396,8 @@ export class ReservationsService {
   }
 
   /**
-   * Calcule le coût d'un forfait kilométrique sur la durée du séjour.
-   * coût = kmInclus_par_jour × prixParKm × nbJours
+   * Montant location sur la durée : tarif journalier du forfait km × nb de jours
+   * (sans prix « base » séparé).
    */
   private async computeMileageCost(
     tier: 'TIER1' | 'TIER2' | 'TIER3',
@@ -526,21 +529,11 @@ export class ReservationsService {
     const typePricing = this.requireVehicleTypePricing(vehicle.type, typePricingRow);
 
     const days = this.calculateDays(start, end);
-    const basePrice = typePricing.basePricePerDay * days;
     const paystackReference = uuidv4();
 
-    // 1. Forfait kilométrique (s'ajoute au prix de base)
-    let mileagePackageCost: number | null = null;
-    if (dto.mileagePackage) {
-      mileagePackageCost = await this.computeMileageCost(
-        dto.mileagePackage as 'TIER1' | 'TIER2' | 'TIER3',
-        days,
-        typePricing,
-      );
-    }
-
-    // 2. Prix intermédiaire : base + forfait km
-    const priceWithMileage = basePrice + (mileagePackageCost ?? 0);
+    const tier = this.resolveVehicleMileageTier(dto.mileagePackage);
+    const mileagePackageCost = await this.computeMileageCost(tier, days, typePricing);
+    const priceWithMileage = mileagePackageCost;
 
     // 3. Option assurance (réduction sur le prix intermédiaire + montant fixe)
     let totalPrice = priceWithMileage;
@@ -570,7 +563,7 @@ export class ReservationsService {
         hasInsurance: dto.hasInsurance ?? false,
         insurancePrice,
         insuranceDiscount,
-        mileagePackage: dto.mileagePackage ?? null,
+        mileagePackage: tier,
         mileagePackageCost,
         promoCode: promo.promoCode,
         promoCodeId: promo.promoCodeId,

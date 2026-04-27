@@ -9,7 +9,6 @@ import { Prisma, Vehicle, VehicleTypePricing } from '@prisma/client';
 export type VehicleWithPricing = Vehicle & {
   typePricing: VehicleTypePricing | null;
   fromPriceTier1: number;
-  basePricePerDay: number | null;
 };
 
 @Injectable()
@@ -59,13 +58,11 @@ export class VehiclesService {
 
   private enrichVehicle(vehicle: Vehicle, pricingMap: Map<string, VehicleTypePricing>): VehicleWithPricing {
     const typePricing = pricingMap.get(vehicle.type) ?? null;
-    const basePricePerDay = typePricing?.basePricePerDay ?? null;
     const fromPriceTier1 = typePricing ? VehiclesService.tier1DailyCost(typePricing) : 0;
     return {
       ...vehicle,
       typePricing,
       fromPriceTier1,
-      basePricePerDay,
     };
   }
 

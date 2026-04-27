@@ -30,7 +30,12 @@ export class DocumentsService {
       const rateRow = await this.prisma.vehicleTypePricing.findUnique({
         where: { vehicleType: booking.vehicle.type },
       });
-      vehicleDailyRate = rateRow?.basePricePerDay ?? 0;
+      const tier = booking.mileagePackage === 'TIER2' || booking.mileagePackage === 'TIER3' ? booking.mileagePackage : 'TIER1';
+      if (rateRow) {
+        if (tier === 'TIER1') vehicleDailyRate = rateRow.tier1MileageDailyAmount;
+        else if (tier === 'TIER2') vehicleDailyRate = rateRow.tier2MileageDailyAmount;
+        else vehicleDailyRate = rateRow.tier3MileageDailyAmount;
+      }
     }
 
     return this.createInvoicePDF(booking, vehicleDailyRate);
@@ -139,7 +144,7 @@ export class DocumentsService {
       doc.fontSize(10);
       if (booking.vehicle) {
         doc.text(
-          `Tarif location (grille type ${booking.vehicle.type}): ${vehicleDailyRate.toFixed(2)} FCFA / jour`,
+          `Tarif journalier (forfait km, type ${booking.vehicle.type}): ${vehicleDailyRate.toFixed(2)} FCFA / jour`,
         );
         doc.text(`Nombre de jours: ${days}`);
       } else if (booking.apartment) {

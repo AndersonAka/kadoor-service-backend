@@ -237,7 +237,6 @@ export class AdminService {
         title: vehicle.title,
         type: vehicle.type,
         bookingsCount: vehicle._count.bookings,
-        basePricePerDay: p?.basePricePerDay ?? null,
         fromPriceTier1,
       };
     });

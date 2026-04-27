@@ -91,12 +91,12 @@ async function main() {
   };
 
   const typePricingSeeds = [
-    { vehicleType: 'Berline', basePricePerDay: 60000 },
-    { vehicleType: 'SUV', basePricePerDay: 75000 },
-    { vehicleType: 'Utilitaire', basePricePerDay: 45000 },
-    { vehicleType: 'Fourgonnette', basePricePerDay: 50000 },
-    { vehicleType: 'Luxe', basePricePerDay: 120000 },
-    { vehicleType: 'Pick-up', basePricePerDay: 50000 },
+    { vehicleType: 'Berline' },
+    { vehicleType: 'SUV' },
+    { vehicleType: 'Utilitaire' },
+    { vehicleType: 'Fourgonnette' },
+    { vehicleType: 'Luxe' },
+    { vehicleType: 'Pick-up' },
   ];
 
   console.log('Seeding VehicleTypePricing...');
