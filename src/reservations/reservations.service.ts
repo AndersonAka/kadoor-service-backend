@@ -13,10 +13,6 @@ import { SettingsService } from '../settings/settings.service';
 import { PromoCodesService } from '../promo-codes/promo-codes.service';
 import { v4 as uuidv4 } from 'uuid';
 
-/** Clés SiteSettings — assurance véhicule */
-const INSURANCE_PRICE_KEY = 'vehicleInsurancePrice';
-const INSURANCE_DISCOUNT_KEY = 'vehicleInsuranceDiscountPercent';
-
 /** Clés SiteSettings — forfaits kilométriques */
 const MILEAGE_TIER1_KM_KEY   = 'mileage_tier1_limit';          // km/jour inclus (défaut 100)
 const MILEAGE_TIER1_PRICE_KEY = 'mileage_tier1_price_per_km';  // FCFA/km (défaut 300)
@@ -369,29 +365,21 @@ export class ReservationsService {
   }
 
   /**
-   * Calcule le supplément assurance et la réduction appliquée au prix de base.
-   * - insurancePrice  : montant fixe ajouté (lu dans SiteSettings, défaut 15 000 FCFA)
-   * - discountPercent : taux de réduction sur le prix de base (lu dans SiteSettings, défaut 0 %)
-   * Formule : totalPrice = basePrice * (1 - discount%) + insurancePrice
+   * Supplément assurance : montant fixe et % de réduction issus uniquement de VehicleTypePricing.
+   * totalWithInsurance = basePrice − réduction + assurance
    */
-  private async computeInsurance(
+  private computeInsurance(
     basePrice: number,
-    typePricing?: VehicleTypePricing | null,
-  ): Promise<{
+    typePricing: VehicleTypePricing,
+  ): {
     insurancePrice: number;
     insuranceDiscount: number;
     totalWithInsurance: number;
-  }> {
-    const insurancePrice = typePricing
-      ? typePricing.insuranceAmount
-      : await this.getNumericSetting(INSURANCE_PRICE_KEY, 15_000);
-    const discountPercent = typePricing
-      ? typePricing.insuranceDiscountPercent
-      : await this.getNumericSetting(INSURANCE_DISCOUNT_KEY, 0);
-
+  } {
+    const insurancePrice = typePricing.insuranceAmount;
+    const discountPercent = typePricing.insuranceDiscountPercent;
     const insuranceDiscount = Math.round(basePrice * (discountPercent / 100));
     const totalWithInsurance = basePrice - insuranceDiscount + insurancePrice;
-
     return { insurancePrice, insuranceDiscount, totalWithInsurance };
   }
 
@@ -541,7 +529,7 @@ export class ReservationsService {
     let insuranceDiscount: number | null = null;
 
     if (dto.hasInsurance) {
-      const insurance = await this.computeInsurance(priceWithMileage, typePricing);
+      const insurance = this.computeInsurance(priceWithMileage, typePricing);
       totalPrice = insurance.totalWithInsurance;
       insurancePrice = insurance.insurancePrice;
       insuranceDiscount = insurance.insuranceDiscount;

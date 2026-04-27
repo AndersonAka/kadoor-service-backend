@@ -157,36 +157,17 @@ describe('ReservationsService', () => {
     });
   });
 
-  describe('computeInsurance (via getNumericSetting)', () => {
-    it('should use default values when settings are absent', async () => {
-      mockSettingsService.findByKey.mockResolvedValue(null);
-      // Accès via la méthode publique initiateVehiclePayment n'est pas pratique ici ;
-      // on valide via l'intégration dans verifyPayment ou directement les constantes.
-      // Teste que findByKey est appelé avec les bonnes clés.
-      const priceKey = 'vehicleInsurancePrice';
-      const discountKey = 'vehicleInsuranceDiscountPercent';
-      await mockSettingsService.findByKey(priceKey);
-      await mockSettingsService.findByKey(discountKey);
-      expect(mockSettingsService.findByKey).toHaveBeenCalledWith(priceKey);
-      expect(mockSettingsService.findByKey).toHaveBeenCalledWith(discountKey);
-    });
+  describe('computeInsurance (VehicleTypePricing only)', () => {
+    it('applies discount then adds insurance from type grid', () => {
+      const typePricing = {
+        insuranceAmount: 20_000,
+        insuranceDiscountPercent: 10,
+      } as import('@prisma/client').VehicleTypePricing;
 
-    it('should apply custom insurance price and discount from settings', async () => {
-      mockSettingsService.findByKey
-        .mockImplementation((key: string) => {
-          if (key === 'vehicleInsurancePrice') return Promise.resolve({ key, value: '20000' });
-          if (key === 'vehicleInsuranceDiscountPercent') return Promise.resolve({ key, value: '10' });
-          return Promise.resolve(null);
-        });
-
-      // basePrice = 100 000 FCFA
-      // discount = 100000 * 10% = 10 000
-      // total = 100000 - 10000 + 20000 = 110 000
-      const basePrice = 100_000;
-      const discountPercent = 10;
-      const insurancePrice = 20_000;
-      const expected = basePrice - Math.round(basePrice * discountPercent / 100) + insurancePrice;
-      expect(expected).toBe(110_000);
+      const r = (service as any).computeInsurance(100_000, typePricing);
+      expect(r.insuranceDiscount).toBe(10_000);
+      expect(r.insurancePrice).toBe(20_000);
+      expect(r.totalWithInsurance).toBe(110_000);
     });
   });
 

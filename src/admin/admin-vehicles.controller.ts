@@ -46,6 +46,13 @@ export class AdminVehiclesController {
     return this.vehiclesService.upsertVehicleTypePricing(decodeURIComponent(vehicleType), dto);
   }
 
+  @Delete('type-pricing/:vehicleType')
+  @ApiOperation({ summary: 'Supprimer la grille tarifaire d\'un type (aucun véhicule ne doit l\'utiliser)' })
+  @ApiParam({ name: 'vehicleType', description: 'Ex: Berline, SUV' })
+  deleteTypePricing(@Param('vehicleType') vehicleType: string) {
+    return this.vehiclesService.deleteTypePricing(decodeURIComponent(vehicleType));
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Récupérer les détails d\'un véhicule (admin)' })
   @ApiParam({ name: 'id', description: 'ID du véhicule' })

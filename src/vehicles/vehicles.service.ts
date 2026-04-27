@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 import { QueryVehiclesDto } from './dto/query-vehicles.dto';
@@ -45,6 +45,25 @@ export class VehiclesService {
       create: { vehicleType, ...dto },
       update: { ...dto },
     });
+  }
+
+  /** Supprime la grille d’un type si aucun véhicule ne référence ce `Vehicle.type`. */
+  async deleteTypePricing(vehicleType: string): Promise<{ deleted: true }> {
+    const count = await this.prisma.vehicle.count({ where: { type: vehicleType } });
+    if (count > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer le type « ${vehicleType} » : ${count} véhicule(s) l’utilisent encore.`,
+      );
+    }
+    try {
+      await this.prisma.vehicleTypePricing.delete({ where: { vehicleType } });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        throw new NotFoundException(`Aucune grille tarifaire pour le type « ${vehicleType} ».`);
+      }
+      throw e;
+    }
+    return { deleted: true };
   }
 
   private async loadPricingForTypes(types: string[]): Promise<Map<string, VehicleTypePricing>> {
