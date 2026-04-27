@@ -223,13 +223,24 @@ export class AdminService {
       take: limit,
     });
 
-    return vehicles.map((vehicle) => ({
-      id: vehicle.id,
-      title: vehicle.title,
-      type: vehicle.type,
-      bookingsCount: vehicle._count.bookings,
-      pricePerDay: vehicle.pricePerDay,
-    }));
+    const types = [...new Set(vehicles.map((v) => v.type))];
+    const pricings = await this.prisma.vehicleTypePricing.findMany({
+      where: { vehicleType: { in: types } },
+    });
+    const priceByType = new Map(pricings.map((p) => [p.vehicleType, p]));
+
+    return vehicles.map((vehicle) => {
+      const p = priceByType.get(vehicle.type);
+      const fromPriceTier1 = p ? Math.round(p.tier1KmPerDay * p.tier1PricePerKm) : null;
+      return {
+        id: vehicle.id,
+        title: vehicle.title,
+        type: vehicle.type,
+        bookingsCount: vehicle._count.bookings,
+        basePricePerDay: p?.basePricePerDay ?? null,
+        fromPriceTier1,
+      };
+    });
   }
 
   /**

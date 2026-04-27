@@ -38,9 +38,6 @@ export class CreateVehicleDto {
   @IsString()
   location?: string;
 
-  @IsNumber()
-  pricePerDay: number;
-
   @IsOptional()
   @IsBoolean()
   isAvailable?: boolean;

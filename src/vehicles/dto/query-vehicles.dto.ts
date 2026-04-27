@@ -1,17 +1,10 @@
-import { IsOptional, IsString, IsNumber, IsEnum, Min, Max } from 'class-validator';
-import { Type } from 'class-transformer';
-
-export enum VehicleType {
-  TYPE_1 = 'TYPE_1',
-  TYPE_2 = 'TYPE_2',
-  TYPE_3 = 'TYPE_3',
-  TYPE_4 = 'TYPE_4',
-}
+import { IsOptional, IsString, IsNumber, Min, Max, IsBoolean } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 export class QueryVehiclesDto {
   @IsOptional()
-  @IsEnum(VehicleType)
-  type?: VehicleType;
+  @IsString()
+  type?: string;
 
   @IsOptional()
   @IsString()
@@ -45,4 +38,10 @@ export class QueryVehiclesDto {
   @Min(1)
   @Max(100)
   limit?: number = 10;
+
+  /** Admin : inclure les véhicules indisponibles */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  includeUnavailable?: boolean;
 }

@@ -25,7 +25,15 @@ export class DocumentsService {
       throw new NotFoundException(`Réservation avec l'ID ${bookingId} non trouvée`);
     }
 
-    return this.createInvoicePDF(booking);
+    let vehicleDailyRate = 0;
+    if (booking.vehicle) {
+      const rateRow = await this.prisma.vehicleTypePricing.findUnique({
+        where: { vehicleType: booking.vehicle.type },
+      });
+      vehicleDailyRate = rateRow?.basePricePerDay ?? 0;
+    }
+
+    return this.createInvoicePDF(booking, vehicleDailyRate);
   }
 
   /**
@@ -71,7 +79,7 @@ export class DocumentsService {
   /**
    * Crée le PDF de facture
    */
-  private async createInvoicePDF(booking: any): Promise<Buffer> {
+  private createInvoicePDF(booking: any, vehicleDailyRate: number): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 50 });
       const chunks: Buffer[] = [];
@@ -130,7 +138,9 @@ export class DocumentsService {
       doc.fontSize(14).text('Montant', { underline: true });
       doc.fontSize(10);
       if (booking.vehicle) {
-        doc.text(`Prix par jour: ${booking.vehicle.pricePerDay.toFixed(2)} FCFA`);
+        doc.text(
+          `Tarif location (grille type ${booking.vehicle.type}): ${vehicleDailyRate.toFixed(2)} FCFA / jour`,
+        );
         doc.text(`Nombre de jours: ${days}`);
       } else if (booking.apartment) {
         doc.text(`Prix par nuit: ${booking.apartment.pricePerNight.toFixed(2)} FCFA`);

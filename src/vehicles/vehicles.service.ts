@@ -2,17 +2,76 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 import { QueryVehiclesDto } from './dto/query-vehicles.dto';
+import { UpsertVehicleTypePricingDto } from './dto/upsert-vehicle-type-pricing.dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, Vehicle, VehicleTypePricing } from '@prisma/client';
+
+export type VehicleWithPricing = Vehicle & {
+  typePricing: VehicleTypePricing | null;
+  fromPriceTier1: number;
+  basePricePerDay: number | null;
+};
 
 @Injectable()
 export class VehiclesService {
   constructor(private prisma: PrismaService) {}
 
+  /** Coût journalier du palier TIER 1 (km/j × FCFA/km), affichage « à partir de » */
+  static tier1DailyCost(p: Pick<VehicleTypePricing, 'tier1KmPerDay' | 'tier1PricePerKm'>): number {
+    return Math.round(p.tier1KmPerDay * p.tier1PricePerKm);
+  }
+
   create(createVehicleDto: CreateVehicleDto) {
     return this.prisma.vehicle.create({
       data: createVehicleDto,
     });
+  }
+
+  async findAllTypePricing(): Promise<VehicleTypePricing[]> {
+    return this.prisma.vehicleTypePricing.findMany({ orderBy: { vehicleType: 'asc' } });
+  }
+
+  async findTypePricing(vehicleType: string): Promise<VehicleTypePricing | null> {
+    return this.prisma.vehicleTypePricing.findUnique({
+      where: { vehicleType },
+    });
+  }
+
+  async upsertVehicleTypePricing(
+    vehicleType: string,
+    dto: UpsertVehicleTypePricingDto,
+  ): Promise<VehicleTypePricing> {
+    return this.prisma.vehicleTypePricing.upsert({
+      where: { vehicleType },
+      create: { vehicleType, ...dto },
+      update: { ...dto },
+    });
+  }
+
+  private async loadPricingForTypes(types: string[]): Promise<Map<string, VehicleTypePricing>> {
+    const unique = [...new Set(types.filter(Boolean))];
+    if (unique.length === 0) return new Map();
+    const rows = await this.prisma.vehicleTypePricing.findMany({
+      where: { vehicleType: { in: unique } },
+    });
+    return new Map(rows.map((r) => [r.vehicleType, r]));
+  }
+
+  private enrichVehicle(vehicle: Vehicle, pricingMap: Map<string, VehicleTypePricing>): VehicleWithPricing {
+    const typePricing = pricingMap.get(vehicle.type) ?? null;
+    const basePricePerDay = typePricing?.basePricePerDay ?? null;
+    const fromPriceTier1 = typePricing ? VehiclesService.tier1DailyCost(typePricing) : 0;
+    return {
+      ...vehicle,
+      typePricing,
+      fromPriceTier1,
+      basePricePerDay,
+    };
+  }
+
+  private async enrichMany(vehicles: Vehicle[]): Promise<VehicleWithPricing[]> {
+    const map = await this.loadPricingForTypes(vehicles.map((v) => v.type));
+    return vehicles.map((v) => this.enrichVehicle(v, map));
   }
 
   async findAll(query: QueryVehiclesDto) {
@@ -24,49 +83,55 @@ export class VehiclesService {
       search,
       page = 1,
       limit = 10,
+      includeUnavailable,
     } = query;
 
-    const where: Prisma.VehicleWhereInput = {
-      isAvailable: true,
-    };
-
-    // Filtre par type
-    if (type) {
-      where.type = type;
+    const where: Prisma.VehicleWhereInput = {};
+    if (!includeUnavailable) {
+      where.isAvailable = true;
     }
 
-    // Filtre par localisation
     if (location) {
-      (where as any).location = {
+      where.location = {
         contains: location,
         mode: Prisma.QueryMode.insensitive,
       };
     }
 
-    // Filtre par prix
     if (minPrice !== undefined || maxPrice !== undefined) {
-      where.pricePerDay = {};
-      if (minPrice !== undefined) {
-        where.pricePerDay.gte = minPrice;
+      const pricings = await this.prisma.vehicleTypePricing.findMany();
+      let matchingTypes = pricings
+        .filter((p) => {
+          const t1 = VehiclesService.tier1DailyCost(p);
+          if (minPrice !== undefined && t1 < minPrice) return false;
+          if (maxPrice !== undefined && t1 > maxPrice) return false;
+          return true;
+        })
+        .map((p) => p.vehicleType);
+
+      if (type) {
+        matchingTypes = matchingTypes.filter((t) => t === type);
       }
-      if (maxPrice !== undefined) {
-        where.pricePerDay.lte = maxPrice;
+
+      if (matchingTypes.length === 0) {
+        return {
+          data: [],
+          meta: { total: 0, page, limit, totalPages: 0 },
+        };
       }
+
+      where.type = type ? type : { in: matchingTypes };
+    } else if (type) {
+      where.type = type;
     }
 
-    // Recherche textuelle
     if (search) {
-      const searchConditions: any[] = [
+      const searchConditions: Prisma.VehicleWhereInput[] = [
         { title: { contains: search, mode: Prisma.QueryMode.insensitive } },
         { description: { contains: search, mode: Prisma.QueryMode.insensitive } },
-      ];
-      
-      // Ajouter make et model (champs optionnels dans le schéma)
-      searchConditions.push(
         { make: { contains: search, mode: Prisma.QueryMode.insensitive } },
         { model: { contains: search, mode: Prisma.QueryMode.insensitive } },
-      );
-      
+      ];
       where.OR = searchConditions;
     }
 
@@ -82,18 +147,20 @@ export class VehiclesService {
       this.prisma.vehicle.count({ where }),
     ]);
 
+    const data = await this.enrichMany(vehicles);
+
     return {
-      data: vehicles,
+      data,
       meta: {
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.ceil(total / limit) || 0,
       },
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string): Promise<VehicleWithPricing> {
     const vehicle = await this.prisma.vehicle.findUnique({
       where: { id },
       include: {
@@ -116,7 +183,10 @@ export class VehiclesService {
       throw new NotFoundException(`Véhicule avec l'ID ${id} non trouvé`);
     }
 
-    return vehicle;
+    const { bookings, ...rest } = vehicle;
+    const map = await this.loadPricingForTypes([rest.type]);
+    const enriched = this.enrichVehicle(rest as Vehicle, map);
+    return { ...enriched, bookings };
   }
 
   async checkAvailability(id: string, startDate: string, endDate: string) {
@@ -133,7 +203,6 @@ export class VehiclesService {
       };
     }
 
-    // Récupérer toutes les réservations pour la période
     const bookings = await this.prisma.booking.findMany({
       where: {
         vehicleId: id,
@@ -153,21 +222,19 @@ export class VehiclesService {
       },
     });
 
-    // Générer la liste des dates réservées
     const bookedDates: string[] = [];
     bookings.forEach((booking) => {
       const bookingStart = new Date(booking.startDate);
       const bookingEnd = new Date(booking.endDate);
       const current = new Date(Math.max(bookingStart.getTime(), start.getTime()));
       const lastDate = new Date(Math.min(bookingEnd.getTime(), end.getTime()));
-      
+
       while (current <= lastDate) {
         bookedDates.push(current.toISOString().split('T')[0]);
         current.setDate(current.getDate() + 1);
       }
     });
 
-    // Vérifier s'il y a des conflits
     const hasConflict = bookings.length > 0;
     const available = !hasConflict && vehicle.isAvailable;
 

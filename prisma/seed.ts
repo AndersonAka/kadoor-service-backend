@@ -21,6 +21,7 @@ async function main() {
   await prisma.user.deleteMany();
   await prisma.heroSlide.deleteMany();
   await prisma.vehicle.deleteMany();
+  await prisma.vehicleTypePricing.deleteMany();
   await prisma.apartment.deleteMany();
 
   console.log('Seeding Admin User...');
@@ -80,6 +81,34 @@ async function main() {
     await prisma.heroSlide.create({ data: slide });
   }
 
+  const defaultTypePricing = {
+    tier1KmPerDay: 100,
+    tier1PricePerKm: 300,
+    tier2KmPerDay: 200,
+    tier2PricePerKm: 270,
+    tier3KmPerDay: 250,
+    tier3PricePerKm: 280,
+    overagePricePerKm: 350,
+    insuranceAmount: 15000,
+    insuranceDiscountPercent: 0,
+  };
+
+  const typePricingSeeds = [
+    { vehicleType: 'Berline', basePricePerDay: 60000 },
+    { vehicleType: 'SUV', basePricePerDay: 75000 },
+    { vehicleType: 'Utilitaire', basePricePerDay: 45000 },
+    { vehicleType: 'Fourgonnette', basePricePerDay: 50000 },
+    { vehicleType: 'Luxe', basePricePerDay: 120000 },
+    { vehicleType: 'Pick-up', basePricePerDay: 50000 },
+  ];
+
+  console.log('Seeding VehicleTypePricing...');
+  for (const row of typePricingSeeds) {
+    await prisma.vehicleTypePricing.create({
+      data: { ...defaultTypePricing, ...row },
+    });
+  }
+
   console.log('Seeding Vehicles...');
   const vehicles = [
     {
@@ -93,7 +122,6 @@ async function main() {
       transmission: "Automatique",
       seats: 7,
       location: "Douala, Littoral",
-      pricePerDay: 75000,
       images: ["https://images.unsplash.com/photo-1594502184342-2e12f877aa73?w=800"],
       features: ["Climatisation", "GPS", "Cuir", "4x4"],
     },
@@ -108,7 +136,6 @@ async function main() {
       transmission: "Automatique",
       seats: 5,
       location: "Yaoundé, Centre",
-      pricePerDay: 60000,
       images: ["https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=800"],
       features: ["Climatisation", "Bluetooth", "Toit ouvrant"],
     },
@@ -123,7 +150,6 @@ async function main() {
       transmission: "Automatique",
       seats: 5,
       location: "Douala, Littoral",
-      pricePerDay: 50000,
       images: ["https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=800"],
       features: ["4x4", "Crochet de remorquage", "Régulateur de vitesse"],
     },

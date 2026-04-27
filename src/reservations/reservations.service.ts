@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { VehicleTypePricing } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReservationVehicleDto } from './dto/create-reservation-vehicle.dto';
 import { CreateReservationApartmentDto } from './dto/create-reservation-apartment.dto';
@@ -41,6 +42,42 @@ export class ReservationsService {
   /**
    * Calcule le nombre de jours entre deux dates
    */
+  private async getVehicleTypePricing(vehicleType: string): Promise<VehicleTypePricing | null> {
+    return this.prisma.vehicleTypePricing.findUnique({ where: { vehicleType } });
+  }
+
+  private requireVehicleTypePricing(vehicleType: string, row: VehicleTypePricing | null): VehicleTypePricing {
+    if (!row) {
+      throw new BadRequestException(
+        `Grille tarifaire introuvable pour le type « ${vehicleType} ». Créez-la dans l’admin (tarifs par type).`,
+      );
+    }
+    return row;
+  }
+
+  /** Enrichit le véhicule lié (affichage admin / détail réservation) */
+  private async attachVehiclePricing<T extends { type: string }>(vehicle: T | null) {
+    if (!vehicle) return null;
+    const p = await this.prisma.vehicleTypePricing.findUnique({ where: { vehicleType: vehicle.type } });
+    if (!p) {
+      return { ...vehicle, typePricing: null, fromPriceTier1: null, basePricePerDay: null } as T & {
+        typePricing: VehicleTypePricing | null;
+        fromPriceTier1: number | null;
+        basePricePerDay: number | null;
+      };
+    }
+    return {
+      ...vehicle,
+      typePricing: p,
+      fromPriceTier1: Math.round(p.tier1KmPerDay * p.tier1PricePerKm),
+      basePricePerDay: p.basePricePerDay,
+    } as T & {
+      typePricing: VehicleTypePricing;
+      fromPriceTier1: number;
+      basePricePerDay: number;
+    };
+  }
+
   private calculateDays(startDate: Date, endDate: Date): number {
     const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -86,9 +123,12 @@ export class ReservationsService {
       throw new NotFoundException('Véhicule non trouvé');
     }
 
+    const typePricing = await this.getVehicleTypePricing(vehicle.type);
+    const pricing = this.requireVehicleTypePricing(vehicle.type, typePricing);
+
     // Calculer le prix total
     const days = this.calculateDays(start, end);
-    const basePrice = vehicle.pricePerDay * days;
+    const basePrice = pricing.basePricePerDay * days;
     // TODO: Ajouter les suppléments (conducteur additionnel, etc.)
     const totalPrice = basePrice;
 
@@ -270,6 +310,10 @@ export class ReservationsService {
       throw new NotFoundException(`Réservation avec l'ID ${id} non trouvée`);
     }
 
+    if (reservation.vehicle) {
+      reservation.vehicle = (await this.attachVehiclePricing(reservation.vehicle)) as typeof reservation.vehicle;
+    }
+
     return reservation;
   }
 
@@ -327,13 +371,20 @@ export class ReservationsService {
    * - discountPercent : taux de réduction sur le prix de base (lu dans SiteSettings, défaut 0 %)
    * Formule : totalPrice = basePrice * (1 - discount%) + insurancePrice
    */
-  private async computeInsurance(basePrice: number): Promise<{
+  private async computeInsurance(
+    basePrice: number,
+    typePricing?: VehicleTypePricing | null,
+  ): Promise<{
     insurancePrice: number;
     insuranceDiscount: number;
     totalWithInsurance: number;
   }> {
-    const insurancePrice = await this.getNumericSetting(INSURANCE_PRICE_KEY, 15_000);
-    const discountPercent = await this.getNumericSetting(INSURANCE_DISCOUNT_KEY, 0);
+    const insurancePrice = typePricing
+      ? typePricing.insuranceAmount
+      : await this.getNumericSetting(INSURANCE_PRICE_KEY, 15_000);
+    const discountPercent = typePricing
+      ? typePricing.insuranceDiscountPercent
+      : await this.getNumericSetting(INSURANCE_DISCOUNT_KEY, 0);
 
     const insuranceDiscount = Math.round(basePrice * (discountPercent / 100));
     const totalWithInsurance = basePrice - insuranceDiscount + insurancePrice;
@@ -348,7 +399,18 @@ export class ReservationsService {
   private async computeMileageCost(
     tier: 'TIER1' | 'TIER2' | 'TIER3',
     days: number,
+    typePricing?: VehicleTypePricing | null,
   ): Promise<number> {
+    if (typePricing) {
+      if (tier === 'TIER1') {
+        return Math.round(typePricing.tier1KmPerDay * typePricing.tier1PricePerKm * days);
+      }
+      if (tier === 'TIER2') {
+        return Math.round(typePricing.tier2KmPerDay * typePricing.tier2PricePerKm * days);
+      }
+      return Math.round(typePricing.tier3KmPerDay * typePricing.tier3PricePerKm * days);
+    }
+
     let kmKey: string, priceKey: string, defaultKm: number, defaultPrice: number;
 
     if (tier === 'TIER1') {
@@ -359,8 +421,8 @@ export class ReservationsService {
       kmKey = MILEAGE_TIER3_KM_KEY; priceKey = MILEAGE_TIER3_PRICE_KEY; defaultKm = 250; defaultPrice = 280;
     }
 
-    const kmPerDay    = await this.getNumericSetting(kmKey, defaultKm);
-    const pricePerKm  = await this.getNumericSetting(priceKey, defaultPrice);
+    const kmPerDay = await this.getNumericSetting(kmKey, defaultKm);
+    const pricePerKm = await this.getNumericSetting(priceKey, defaultPrice);
 
     return Math.round(kmPerDay * pricePerKm * days);
   }
@@ -460,14 +522,21 @@ export class ReservationsService {
     const vehicle = await this.vehiclesService.findOne(vehicleId);
     if (!vehicle) throw new NotFoundException('Véhicule non trouvé');
 
+    const typePricingRow = await this.getVehicleTypePricing(vehicle.type);
+    const typePricing = this.requireVehicleTypePricing(vehicle.type, typePricingRow);
+
     const days = this.calculateDays(start, end);
-    const basePrice = vehicle.pricePerDay * days;
+    const basePrice = typePricing.basePricePerDay * days;
     const paystackReference = uuidv4();
 
     // 1. Forfait kilométrique (s'ajoute au prix de base)
     let mileagePackageCost: number | null = null;
     if (dto.mileagePackage) {
-      mileagePackageCost = await this.computeMileageCost(dto.mileagePackage as 'TIER1' | 'TIER2' | 'TIER3', days);
+      mileagePackageCost = await this.computeMileageCost(
+        dto.mileagePackage as 'TIER1' | 'TIER2' | 'TIER3',
+        days,
+        typePricing,
+      );
     }
 
     // 2. Prix intermédiaire : base + forfait km
@@ -479,7 +548,7 @@ export class ReservationsService {
     let insuranceDiscount: number | null = null;
 
     if (dto.hasInsurance) {
-      const insurance = await this.computeInsurance(priceWithMileage);
+      const insurance = await this.computeInsurance(priceWithMileage, typePricing);
       totalPrice = insurance.totalWithInsurance;
       insurancePrice = insurance.insurancePrice;
       insuranceDiscount = insurance.insuranceDiscount;

@@ -1,9 +1,10 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseInterceptors, UploadedFiles } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Patch, Param, Delete, Query, UseInterceptors, UploadedFiles } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiConsumes, ApiBearerAuth } from '@nestjs/swagger';
 import { VehiclesService } from '../vehicles/vehicles.service';
 import { CreateVehicleDto } from '../vehicles/dto/create-vehicle.dto';
 import { UpdateVehicleDto } from '../vehicles/dto/update-vehicle.dto';
+import { UpsertVehicleTypePricingDto } from '../vehicles/dto/upsert-vehicle-type-pricing.dto';
 import { AdminQueryDto } from './dto/admin-query.dto';
 // import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 // import { RolesGuard } from '../auth/roles.guard';
@@ -21,9 +22,28 @@ export class AdminVehiclesController {
   // @Roles('ADMIN', 'MANAGER')
   // @ApiBearerAuth()
   findAll(@Query() query: AdminQueryDto) {
-    // Pour l'admin, on peut retourner tous les véhicules (même non disponibles)
-    // TODO: Adapter le service pour accepter un paramètre includeUnavailable
-    return this.vehiclesService.findAll(query as any);
+    return this.vehiclesService.findAll({ ...query, includeUnavailable: true } as any);
+  }
+
+  @Get('type-pricing')
+  @ApiOperation({ summary: 'Liste des grilles tarifaires par type de véhicule' })
+  @ApiResponse({ status: 200, description: 'OK' })
+  findAllTypePricing() {
+    return this.vehiclesService.findAllTypePricing();
+  }
+
+  @Get('type-pricing/:vehicleType')
+  @ApiOperation({ summary: 'Grille tarifaire pour un type' })
+  @ApiParam({ name: 'vehicleType', description: 'Ex: Berline, SUV' })
+  findTypePricing(@Param('vehicleType') vehicleType: string) {
+    return this.vehiclesService.findTypePricing(decodeURIComponent(vehicleType));
+  }
+
+  @Put('type-pricing/:vehicleType')
+  @ApiOperation({ summary: 'Créer ou mettre à jour la grille tarifaire d\'un type' })
+  @ApiParam({ name: 'vehicleType', description: 'Ex: Berline, SUV' })
+  upsertTypePricing(@Param('vehicleType') vehicleType: string, @Body() dto: UpsertVehicleTypePricingDto) {
+    return this.vehiclesService.upsertVehicleTypePricing(decodeURIComponent(vehicleType), dto);
   }
 
   @Get(':id')
