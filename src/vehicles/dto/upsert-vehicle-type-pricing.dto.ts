@@ -1,4 +1,4 @@
-import { IsNumber, IsInt, Min, Max } from 'class-validator';
+import { IsNumber, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpsertVehicleTypePricingDto {
@@ -7,38 +7,23 @@ export class UpsertVehicleTypePricingDto {
   @Min(0)
   basePricePerDay: number;
 
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(5000)
-  tier1KmPerDay: number;
-
+  /** Forfait moins de 100 km/j — montant journalier (FCFA) */
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  tier1PricePerKm: number;
+  tier1MileageDailyAmount: number;
 
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(5000)
-  tier2KmPerDay: number;
-
+  /** Forfait 100–200 km/j — montant journalier (FCFA) */
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  tier2PricePerKm: number;
+  tier2MileageDailyAmount: number;
 
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(5000)
-  tier3KmPerDay: number;
-
+  /** Forfait 201–250 km/j — montant journalier (FCFA) */
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  tier3PricePerKm: number;
+  tier3MileageDailyAmount: number;
 
   @Type(() => Number)
   @IsNumber()

@@ -37,17 +37,17 @@ model User {
   notifications Notification[]
 }
 
-/// Tarification partagée par type de véhicule (location + paliers km + assurance)
+/// Tarification partagée par type de véhicule (location + forfaits km journaliers + assurance)
 model VehicleTypePricing {
   id                       String   @id @default(uuid())
   vehicleType              String   @unique // Berline, SUV, Utilitaire, Fourgonnette, Luxe
   basePricePerDay          Float    // Prix location journalier (FCFA)
-  tier1KmPerDay            Int      @default(100)
-  tier1PricePerKm          Float    @default(300)
-  tier2KmPerDay            Int      @default(200)
-  tier2PricePerKm          Float    @default(270)
-  tier3KmPerDay            Int      @default(250)
-  tier3PricePerKm          Float    @default(280)
+  /// Forfait « moins de 100 km/jour » — montant journalier (FCFA)
+  tier1MileageDailyAmount  Float    @default(30000)
+  /// Forfait « 100 à 200 km/jour » — montant journalier (FCFA)
+  tier2MileageDailyAmount  Float    @default(54000)
+  /// Forfait « 201 à 250 km/jour » — montant journalier (FCFA)
+  tier3MileageDailyAmount  Float    @default(70000)
   overagePricePerKm        Float    @default(350)
   insuranceAmount          Float    @default(15000)
   insuranceDiscountPercent Float   @default(0)

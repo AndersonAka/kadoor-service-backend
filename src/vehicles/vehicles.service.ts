@@ -16,9 +16,9 @@ export type VehicleWithPricing = Vehicle & {
 export class VehiclesService {
   constructor(private prisma: PrismaService) {}
 
-  /** Coût journalier du palier TIER 1 (km/j × FCFA/km), affichage « à partir de » */
-  static tier1DailyCost(p: Pick<VehicleTypePricing, 'tier1KmPerDay' | 'tier1PricePerKm'>): number {
-    return Math.round(p.tier1KmPerDay * p.tier1PricePerKm);
+  /** Montant journalier du forfait « moins de 100 km/j », affichage « à partir de » (forfait km) */
+  static tier1DailyCost(p: Pick<VehicleTypePricing, 'tier1MileageDailyAmount'>): number {
+    return Math.round(p.tier1MileageDailyAmount);
   }
 
   create(createVehicleDto: CreateVehicleDto) {

@@ -82,12 +82,9 @@ async function main() {
   }
 
   const defaultTypePricing = {
-    tier1KmPerDay: 100,
-    tier1PricePerKm: 300,
-    tier2KmPerDay: 200,
-    tier2PricePerKm: 270,
-    tier3KmPerDay: 250,
-    tier3PricePerKm: 280,
+    tier1MileageDailyAmount: 30000,
+    tier2MileageDailyAmount: 45000,
+    tier3MileageDailyAmount: 70000,
     overagePricePerKm: 350,
     insuranceAmount: 15000,
     insuranceDiscountPercent: 0,

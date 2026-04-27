@@ -69,7 +69,7 @@ export class ReservationsService {
     return {
       ...vehicle,
       typePricing: p,
-      fromPriceTier1: Math.round(p.tier1KmPerDay * p.tier1PricePerKm),
+      fromPriceTier1: Math.round(p.tier1MileageDailyAmount),
       basePricePerDay: p.basePricePerDay,
     } as T & {
       typePricing: VehicleTypePricing;
@@ -403,12 +403,12 @@ export class ReservationsService {
   ): Promise<number> {
     if (typePricing) {
       if (tier === 'TIER1') {
-        return Math.round(typePricing.tier1KmPerDay * typePricing.tier1PricePerKm * days);
+        return Math.round(typePricing.tier1MileageDailyAmount * days);
       }
       if (tier === 'TIER2') {
-        return Math.round(typePricing.tier2KmPerDay * typePricing.tier2PricePerKm * days);
+        return Math.round(typePricing.tier2MileageDailyAmount * days);
       }
-      return Math.round(typePricing.tier3KmPerDay * typePricing.tier3PricePerKm * days);
+      return Math.round(typePricing.tier3MileageDailyAmount * days);
     }
 
     let kmKey: string, priceKey: string, defaultKm: number, defaultPrice: number;

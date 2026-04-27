@@ -231,7 +231,7 @@ export class AdminService {
 
     return vehicles.map((vehicle) => {
       const p = priceByType.get(vehicle.type);
-      const fromPriceTier1 = p ? Math.round(p.tier1KmPerDay * p.tier1PricePerKm) : null;
+      const fromPriceTier1 = p ? Math.round(p.tier1MileageDailyAmount) : null;
       return {
         id: vehicle.id,
         title: vehicle.title,
