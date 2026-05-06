@@ -120,6 +120,8 @@ model Booking {
   id                String   @id @default(uuid())
   startDate         DateTime
   endDate           DateTime
+  pickupTime        String?  // Heure de prise en charge (HH:MM)
+  returnTime        String?  // Heure de restitution (HH:MM)
   totalPrice        Float
   status            String   @default("PENDING") // PENDING, CONFIRMED, CANCELLED, COMPLETED
   paystackReference String?  // UUID reference used for Paystack payment tracking

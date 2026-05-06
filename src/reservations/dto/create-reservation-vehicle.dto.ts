@@ -24,6 +24,10 @@ export class CreateReservationVehicleDto {
 
   @IsOptional()
   @IsString()
+  returnTime?: string; // Heure de restitution souhaitée (HH:MM)
+
+  @IsOptional()
+  @IsString()
   pickupLocation?: string;
 
   @IsOptional()
