@@ -17,6 +17,6 @@ import { PromoCodesModule } from '../promo-codes/promo-codes.module';
   imports: [ConfigModule, PrismaModule, VehiclesModule, ApartmentsModule, DocumentsModule, EmailModule, AuthModule, NotificationsModule, SettingsModule, PromoCodesModule],
   providers: [ReservationsService, PaystackService],
   controllers: [ReservationsController],
-  exports: [ReservationsService],
+  exports: [ReservationsService, PaystackService],
 })
 export class ReservationsModule {}

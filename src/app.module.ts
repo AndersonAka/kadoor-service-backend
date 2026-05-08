@@ -21,6 +21,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { SettingsModule } from './settings/settings.module';
 import { ContactModule } from './contact/contact.module';
 import { PromoCodesModule } from './promo-codes/promo-codes.module';
+import { InvoicesModule } from './invoices/invoices.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { PromoCodesModule } from './promo-codes/promo-codes.module';
     SettingsModule,
     ContactModule,
     PromoCodesModule,
+    InvoicesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

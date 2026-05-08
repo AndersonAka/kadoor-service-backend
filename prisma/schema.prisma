@@ -12,6 +12,24 @@ enum Role {
   MANAGER
 }
 
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  CANCELLED
+  DISPUTED
+  OVERDUE
+}
+
+enum InvoiceLineCategory {
+  DAMAGE
+  LATE_RETURN
+  MILEAGE_OVERAGE
+  TRAFFIC_FINE
+  CLEANING
+  OTHER
+}
+
 model User {
   id                  String    @id @default(uuid())
   email               String    @unique
@@ -35,6 +53,8 @@ model User {
   incidents     Incident[]
   favorites     Favorite[]
   notifications Notification[]
+  invoices      Invoice[] @relation("CustomerInvoices")
+  createdInvoices Invoice[] @relation("AdminCreatedInvoices")
 }
 
 /// Tarification partagée par type de véhicule (location + forfaits km journaliers + assurance)
@@ -155,6 +175,49 @@ model Booking {
 
   apartmentId String?
   apartment   Apartment? @relation(fields: [apartmentId], references: [id])
+  invoices    Invoice[]
+}
+
+model Invoice {
+  id                String      @id @default(uuid())
+  reference         String      @unique
+  status            InvoiceStatus @default(DRAFT)
+  issuedAt          DateTime    @default(now())
+  dueAt             DateTime?
+  subtotal          Float
+  taxAmount         Float       @default(0)
+  totalAmount       Float
+  currency          String      @default("FCFA")
+  paystackReference String?
+  sentAt            DateTime?
+  paidAt            DateTime?
+  internalNote      String?
+  customerNote      String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  bookingId         String
+  booking           Booking     @relation(fields: [bookingId], references: [id])
+  userId            String
+  user              User        @relation("CustomerInvoices", fields: [userId], references: [id])
+  createdById       String
+  createdBy         User        @relation("AdminCreatedInvoices", fields: [createdById], references: [id])
+
+  lines             InvoiceLine[]
+}
+
+model InvoiceLine {
+  id          String              @id @default(uuid())
+  category    InvoiceLineCategory
+  description String
+  quantity    Float               @default(1)
+  unitPrice   Float
+  lineTotal   Float
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  invoiceId   String
+  invoice     Invoice             @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 }
 
 model Review {
