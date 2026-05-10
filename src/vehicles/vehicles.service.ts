@@ -94,9 +94,13 @@ export class VehiclesService {
     const {
       type,
       location,
+      transmission,
       minPrice,
       maxPrice,
       search,
+      startDate,
+      endDate,
+      guests,
       page = 1,
       limit = 10,
       includeUnavailable,
@@ -112,6 +116,35 @@ export class VehiclesService {
         contains: location,
         mode: Prisma.QueryMode.insensitive,
       };
+    }
+
+    if (transmission && transmission.trim() !== '') {
+      where.transmission = {
+        equals: transmission.trim(),
+        mode: Prisma.QueryMode.insensitive,
+      };
+    }
+
+    if (typeof guests === 'number' && guests >= 1) {
+      where.seats = { gte: guests };
+    }
+
+    // Filtre de disponibilité : on exclut les véhicules dont un Booking PENDING/CONFIRMED
+    // chevauche la période demandée (intervalles ouverts à droite).
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && start < end) {
+        where.bookings = {
+          none: {
+            status: { in: ['PENDING', 'CONFIRMED'] },
+            AND: [
+              { startDate: { lt: end } },
+              { endDate: { gt: start } },
+            ],
+          },
+        };
+      }
     }
 
     if (minPrice !== undefined || maxPrice !== undefined) {

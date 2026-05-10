@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsNumber, Min, Max, IsBoolean } from 'class-validator';
+import { IsOptional, IsString, IsNumber, Min, Max, IsBoolean, IsDateString } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 export class QueryVehiclesDto {
@@ -9,6 +9,10 @@ export class QueryVehiclesDto {
   @IsOptional()
   @IsString()
   location?: string;
+
+  @IsOptional()
+  @IsString()
+  transmission?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -25,6 +29,23 @@ export class QueryVehiclesDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  /** Disponibilité : période demandée (ISO 8601). Si les deux sont fournies et valides,
+   *  les véhicules avec un Booking qui chevauche la période sont exclus. */
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+
+  /** Nombre de passagers requis → filtre `seats >= guests`. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  guests?: number;
 
   @IsOptional()
   @Type(() => Number)

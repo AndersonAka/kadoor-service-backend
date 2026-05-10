@@ -23,6 +23,9 @@ export class ApartmentsService {
       maxPrice,
       bedrooms,
       search,
+      startDate,
+      endDate,
+      guests,
       page = 1,
       limit = 10,
     } = query;
@@ -55,9 +58,29 @@ export class ApartmentsService {
       }
     }
 
-    // Filtre par nombre de chambres
+    // Filtre par nombre de chambres (filtre explicite > capacité voyageurs)
     if (bedrooms !== undefined) {
-      where.bedrooms = bedrooms;
+      where.bedrooms = { gte: bedrooms };
+    } else if (typeof guests === 'number' && guests >= 1) {
+      // Heuristique : 1 chambre ≈ 2 personnes
+      where.bedrooms = { gte: Math.max(1, Math.ceil(guests / 2)) };
+    }
+
+    // Filtre de disponibilité : aucun Booking PENDING/CONFIRMED ne chevauche la période.
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && start < end) {
+        where.bookings = {
+          none: {
+            status: { in: ['PENDING', 'CONFIRMED'] },
+            AND: [
+              { startDate: { lt: end } },
+              { endDate: { gt: start } },
+            ],
+          },
+        };
+      }
     }
 
     // Recherche textuelle

@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsNumber, IsEnum, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsEnum, Min, Max, IsDateString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum ApartmentType {
@@ -37,6 +37,23 @@ export class QueryApartmentsDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  /** Disponibilité : période demandée (ISO 8601). Si les deux sont fournies et valides,
+   *  les appartements dont un Booking chevauche la période sont exclus. */
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+
+  /** Nombre de voyageurs → heuristique `bedrooms >= ceil(guests / 2)` (1 chambre ≈ 2 pers.). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  guests?: number;
 
   @IsOptional()
   @Type(() => Number)
