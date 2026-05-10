@@ -1,10 +1,10 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Res, UseGuards, Request } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Response } from 'express';
-import { InvoiceStatus } from '@prisma/client';
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
+import { QueryAdminInvoicesDto } from './dto/query-admin-invoices.dto';
 
 @Controller('admin/invoices')
 @UseGuards(AuthGuard('jwt'))
@@ -12,8 +12,8 @@ export class AdminInvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
   @Get()
-  findAll(@Query('status') status?: InvoiceStatus) {
-    return this.invoicesService.findAllAdmin(status);
+  findAll(@Query() query: QueryAdminInvoicesDto) {
+    return this.invoicesService.findAllAdmin(query.status);
   }
 
   @Post()
