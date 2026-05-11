@@ -6,11 +6,45 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InvoiceStatus } from '@prisma/client';
+import * as fs from 'fs';
+import * as path from 'path';
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaystackService } from '../reservations/paystack.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
+
+/**
+ * Résout le chemin d'un asset (logo, etc.) que NestJS copie dans `dist/assets/`
+ * en production via `nest-cli.json` et qui reste sous `backend/src/assets/` en dev.
+ */
+function resolveAssetPath(filename: string): string | null {
+  const candidates = [
+    path.join(__dirname, '..', 'assets', filename), // dist/<module>/file → ../assets
+    path.join(__dirname, '..', '..', 'assets', filename), // dist/<module>/sub → ../../assets
+    path.join(process.cwd(), 'src', 'assets', filename), // dev runtime
+    path.join(process.cwd(), 'dist', 'assets', filename), // build runtime
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+/**
+ * Formate un nombre en FR sans utiliser les espaces insécables (U+00A0 / U+202F)
+ * que la fonte par défaut de PDFKit (Helvetica WinAnsi) ne sait pas rendre
+ * correctement et affiche comme "/".
+ */
+function formatNumberFr(n: number): string {
+  return Number(n || 0)
+    .toLocaleString('fr-FR', { maximumFractionDigits: 0 })
+    .replace(/[\u00A0\u202F]/g, ' ');
+}
 
 @Injectable()
 export class InvoicesService {
@@ -153,8 +187,13 @@ export class InvoicesService {
   }
 
   async findMine(userId: string) {
+    // Les brouillons (DRAFT) restent privés à l'administration tant qu'ils
+    // n'ont pas été émis : on les exclut systématiquement de la vue client.
     return this.prisma.invoice.findMany({
-      where: { userId },
+      where: {
+        userId,
+        status: { not: 'DRAFT' },
+      },
       include: this.invoiceInclude,
       orderBy: { createdAt: 'desc' },
     });
@@ -163,6 +202,11 @@ export class InvoicesService {
   async findMineOne(userId: string, id: string) {
     const invoice = await this.findOneAdmin(id);
     if (invoice.userId !== userId) throw new ForbiddenException('Accès refusé');
+    // Une facture en brouillon n'est pas censée exister côté client : on
+    // renvoie 404 (et non 403) pour ne pas divulguer son existence.
+    if (invoice.status === 'DRAFT') {
+      throw new NotFoundException('Facture introuvable');
+    }
     return invoice;
   }
 
@@ -226,37 +270,676 @@ export class InvoicesService {
     return { status: 'ok' };
   }
 
+  /**
+   * Génère un PDF "premium" de la facture, conforme à la charte Kadoor.
+   * - Header brand (logo vectoriel rouge + nom)
+   * - Blocs émetteur / destinataire
+   * - Tableau des lignes paginé (en-têtes répétés)
+   * - Bloc total surligné rouge Kadoor
+   * - Notes & footer avec numérotation
+   */
   async generateInvoicePdf(id: string) {
     const invoice = await this.findOneAdmin(id);
+    const currency = invoice.currency || 'FCFA';
+
+    // Charte
+    const COLORS = {
+      brand: '#c21c21',
+      brandDark: '#8a1418',
+      brandSoft: '#fdecec',
+      text: '#1f2937',
+      textMuted: '#6b7280',
+      border: '#e5e7eb',
+      rowAlt: '#fafafa',
+      success: '#059669',
+      warning: '#d97706',
+      gray: '#9ca3af',
+    } as const;
+
+    const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+      DRAFT: { label: 'Brouillon', color: COLORS.textMuted },
+      SENT: { label: 'Envoyée', color: '#2563eb' },
+      PAID: { label: 'Payée', color: COLORS.success },
+      OVERDUE: { label: 'En retard', color: COLORS.warning },
+      CANCELLED: { label: 'Annulée', color: '#dc2626' },
+      DISPUTED: { label: 'Contestée', color: '#9333ea' },
+    };
+
+    const CATEGORY_LABELS: Record<string, string> = {
+      DAMAGE: 'Dommage',
+      LATE_RETURN: 'Retour en retard',
+      MILEAGE_OVERAGE: 'Dépassement km',
+      TRAFFIC_FINE: 'Amende routière',
+      CLEANING: 'Nettoyage',
+      OTHER: 'Autre',
+    };
+
+    const fmtAmount = (n: number) => `${formatNumberFr(n)} ${currency}`;
+    const fmtDate = (d: Date | string | null | undefined) => {
+      if (!d) return '—';
+      const date = d instanceof Date ? d : new Date(d);
+      if (Number.isNaN(date.getTime())) return '—';
+      return date
+        .toLocaleDateString('fr-FR', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        })
+        .replace(/[\u00A0\u202F]/g, ' ');
+    };
+
+    const logoPath = resolveAssetPath('kadoor-logo.png');
+
     return new Promise<Buffer>((resolve, reject) => {
-      const doc = new PDFDocument({ margin: 40 });
+      const doc = new PDFDocument({
+        size: 'A4',
+        margin: 50,
+        bufferPages: true,
+        info: {
+          Title: `Facture ${invoice.reference}`,
+          Author: 'KADOOR SERVICE',
+          Subject: `Facture ${invoice.reference}`,
+          Creator: 'KADOOR SERVICE - Plateforme',
+        },
+      });
       const chunks: Buffer[] = [];
       doc.on('data', (c) => chunks.push(c));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      doc.fontSize(18).text('FACTURE COMPLEMENTAIRE', { align: 'center' });
-      doc.moveDown();
-      doc.fontSize(11).text(`Reference: ${invoice.reference}`);
-      doc.text(`Client: ${invoice.user.firstName || ''} ${invoice.user.lastName || ''}`.trim());
-      doc.text(`Statut: ${invoice.status}`);
-      doc.text(`Date: ${new Date(invoice.issuedAt).toLocaleDateString('fr-FR')}`);
-      doc.moveDown();
-      doc.fontSize(12).text('Lignes de facturation');
-      doc.moveDown(0.5);
-      invoice.lines.forEach((line, i) => {
+      const pageWidth = doc.page.width;
+      const margin = 50;
+      const contentWidth = pageWidth - margin * 2;
+
+      /* ========== Helpers de rendu ========== */
+
+      const drawBrandLogo = (x: number, y: number) => {
+        if (logoPath) {
+          // Vrai logo PNG (préservation du ratio, hauteur ~42pt)
+          try {
+            doc.image(logoPath, x, y, { fit: [44, 44] });
+            return;
+          } catch {
+            /* fallback ci-dessous */
+          }
+        }
+        // Fallback : pastille rouge "K"
+        doc.save();
+        doc.roundedRect(x, y, 38, 38, 10).fill(COLORS.brand);
         doc
+          .fillColor('#ffffff')
+          .font('Helvetica-Bold')
+          .fontSize(20)
+          .text('K', x, y + 8, { width: 38, align: 'center' });
+        doc.restore();
+      };
+
+      /**
+       * Tampon diagonal en filigrane (PAYÉE / ANNULÉE) au centre de la page.
+       * Donne une signature visuelle "très pro" sans alourdir le contenu.
+       */
+      const drawStatusWatermark = () => {
+        if (!['PAID', 'CANCELLED'].includes(invoice.status)) return;
+        const stampLabel = invoice.status === 'PAID' ? 'PAYÉE' : 'ANNULÉE';
+        const stampColor = invoice.status === 'PAID' ? COLORS.success : '#dc2626';
+
+        const cx = doc.page.width / 2;
+        const cy = doc.page.height / 2;
+
+        doc.save();
+        doc.opacity(0.08);
+        doc.translate(cx, cy);
+        doc.rotate(-22);
+
+        const label = stampLabel;
+        doc.font('Helvetica-Bold').fontSize(110).fillColor(stampColor);
+        const textW = doc.widthOfString(label);
+        const textH = doc.heightOfString(label);
+
+        // Cadre double trait
+        const padX = 36;
+        const padY = 18;
+        const rectW = textW + padX * 2;
+        const rectH = textH + padY * 2;
+        doc
+          .lineWidth(6)
+          .strokeColor(stampColor)
+          .roundedRect(-rectW / 2, -rectH / 2, rectW, rectH, 16)
+          .stroke();
+        doc
+          .lineWidth(1.5)
+          .roundedRect(-rectW / 2 + 8, -rectH / 2 + 8, rectW - 16, rectH - 16, 12)
+          .stroke();
+
+        doc.text(label, -textW / 2, -textH / 2 + 6, {
+          lineBreak: false,
+        });
+        doc.opacity(1);
+        doc.restore();
+      };
+
+      const drawDivider = (y: number) => {
+        doc
+          .save()
+          .strokeColor(COLORS.border)
+          .lineWidth(1)
+          .moveTo(margin, y)
+          .lineTo(margin + contentWidth, y)
+          .stroke()
+          .restore();
+      };
+
+      const drawStatusBadge = (
+        x: number,
+        y: number,
+        statusKey: string,
+      ): { width: number; height: number } => {
+        const meta = STATUS_LABELS[statusKey] || { label: statusKey, color: COLORS.textMuted };
+        const label = meta.label.toUpperCase();
+        doc.font('Helvetica-Bold').fontSize(8);
+        const padX = 8;
+        const padY = 4;
+        const textW = doc.widthOfString(label);
+        const w = textW + padX * 2;
+        const h = 16;
+        doc.save();
+        doc.roundedRect(x, y, w, h, h / 2).fill(meta.color);
+        doc.fillColor('#ffffff').text(label, x + padX, y + padY);
+        doc.restore();
+        return { width: w, height: h };
+      };
+
+      const drawCategoryChip = (x: number, y: number, code: string) => {
+        const label = CATEGORY_LABELS[code] || code;
+        doc.font('Helvetica-Bold').fontSize(7.5);
+        const textW = doc.widthOfString(label);
+        const w = textW + 12;
+        const h = 14;
+        doc.save();
+        doc
+          .roundedRect(x, y, w, h, h / 2)
+          .lineWidth(0.7)
+          .strokeColor(COLORS.border)
+          .fillAndStroke('#ffffff', COLORS.border);
+        doc.fillColor(COLORS.text).text(label, x + 6, y + 3.5);
+        doc.restore();
+        return { width: w, height: h };
+      };
+
+      /* ========== Header avec bandeau brand ========== */
+
+      const drawHeader = () => {
+        // Bandeau rouge fin en haut de page (signature visuelle Kadoor)
+        doc.save();
+        doc.rect(0, 0, pageWidth, 6).fill(COLORS.brand);
+        doc.restore();
+
+        const headerTop = margin;
+
+        // Bloc gauche : logo PNG + identité
+        drawBrandLogo(margin, headerTop - 4);
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(16)
+          .fillColor(COLORS.text)
+          .text('KADOOR SERVICE', margin + 56, headerTop + 2);
+        doc
+          .font('Helvetica')
+          .fontSize(9)
+          .fillColor(COLORS.textMuted)
+          .text("Côte d'Ivoire · Auto & Immobilier", margin + 56, headerTop + 22);
+
+        // Bloc droit : "FACTURE" + référence dans une carte douce
+        const rightW = 220;
+        const rightX = margin + contentWidth - rightW;
+        doc.save();
+        doc
+          .roundedRect(rightX, headerTop - 4, rightW, 52, 10)
+          .fill(COLORS.brandSoft);
+        doc.restore();
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(20)
+          .fillColor(COLORS.brand)
+          .text('FACTURE', rightX, headerTop + 2, {
+            width: rightW - 14,
+            align: 'right',
+          });
+        doc
+          .font('Helvetica')
           .fontSize(10)
+          .fillColor(COLORS.brandDark)
+          .text(`N° ${invoice.reference}`, rightX, headerTop + 28, {
+            width: rightW - 14,
+            align: 'right',
+          });
+
+        drawDivider(headerTop + 60);
+      };
+
+      /* ========== Métadonnées (dates + statut) ========== */
+
+      const drawMetaBlock = (yStart: number): number => {
+        const colW = contentWidth / 3;
+        const labels = [
+          { label: 'Émise le', value: fmtDate(invoice.issuedAt || invoice.createdAt) },
+          { label: 'Échéance', value: invoice.dueAt ? fmtDate(invoice.dueAt) : '—' },
+          { label: 'Statut', value: invoice.status },
+        ];
+        labels.forEach((item, i) => {
+          const x = margin + colW * i;
+          doc
+            .font('Helvetica')
+            .fontSize(7.5)
+            .fillColor(COLORS.textMuted)
+            .text(item.label.toUpperCase(), x, yStart, { characterSpacing: 0.6 });
+          if (item.label === 'Statut') {
+            drawStatusBadge(x, yStart + 12, item.value);
+          } else {
+            doc
+              .font('Helvetica-Bold')
+              .fontSize(11)
+              .fillColor(COLORS.text)
+              .text(item.value, x, yStart + 12);
+          }
+        });
+        return yStart + 40;
+      };
+
+      /* ========== Émetteur / Destinataire ========== */
+
+      const drawPartiesBlock = (yStart: number): number => {
+        const cardWidth = (contentWidth - 16) / 2;
+        const cardHeight = 90;
+        const cardRadius = 8;
+
+        // Émetteur (gauche)
+        doc.save();
+        doc
+          .roundedRect(margin, yStart, cardWidth, cardHeight, cardRadius)
+          .lineWidth(1)
+          .strokeColor(COLORS.border)
+          .fillAndStroke('#fafafa', COLORS.border);
+        doc.restore();
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(7.5)
+          .fillColor(COLORS.brand)
+          .text('ÉMETTEUR', margin + 12, yStart + 12, { characterSpacing: 0.6 });
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(11)
+          .fillColor(COLORS.text)
+          .text('KADOOR SERVICE', margin + 12, yStart + 26);
+        doc
+          .font('Helvetica')
+          .fontSize(9)
+          .fillColor(COLORS.textMuted)
+          .text("Abidjan, Côte d'Ivoire", margin + 12, yStart + 42)
+          .text('contact@kadoorservice.com', margin + 12, yStart + 56)
+          .text('www.kadoorservice.com', margin + 12, yStart + 70);
+
+        // Destinataire (droite)
+        const rightX = margin + cardWidth + 16;
+        doc.save();
+        doc
+          .roundedRect(rightX, yStart, cardWidth, cardHeight, cardRadius)
+          .lineWidth(1)
+          .strokeColor(COLORS.border)
+          .fillAndStroke('#ffffff', COLORS.border);
+        doc.restore();
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(7.5)
+          .fillColor(COLORS.brand)
+          .text('FACTURÉ À', rightX + 12, yStart + 12, { characterSpacing: 0.6 });
+        const fullName =
+          `${invoice.user.firstName || ''} ${invoice.user.lastName || ''}`.trim() ||
+          invoice.user.email ||
+          'Client';
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(11)
+          .fillColor(COLORS.text)
+          .text(fullName, rightX + 12, yStart + 26, { width: cardWidth - 24, ellipsis: true });
+        if (invoice.user.email) {
+          doc
+            .font('Helvetica')
+            .fontSize(9)
+            .fillColor(COLORS.textMuted)
+            .text(invoice.user.email, rightX + 12, yStart + 42, {
+              width: cardWidth - 24,
+              ellipsis: true,
+            });
+        }
+        if (invoice.bookingId) {
+          doc
+            .font('Helvetica')
+            .fontSize(9)
+            .fillColor(COLORS.textMuted)
+            .text(
+              `Réservation : #${String(invoice.bookingId).slice(0, 8)}…`,
+              rightX + 12,
+              yStart + 56,
+            );
+        }
+
+        return yStart + cardHeight + 24;
+      };
+
+      /* ========== Tableau des lignes (paginé) ========== */
+
+      // Colonnes : Description (flex), Qté, P.U., Total
+      const colDesc = { x: margin + 12, w: contentWidth - 12 - 60 - 90 - 100 };
+      const colQty = { x: colDesc.x + colDesc.w, w: 60 };
+      const colPU = { x: colQty.x + colQty.w, w: 90 };
+      const colTotal = { x: colPU.x + colPU.w, w: 100 - 12 };
+
+      const drawTableHeader = (y: number): number => {
+        const rowH = 26;
+        doc.save();
+        doc
+          .rect(margin, y, contentWidth, rowH)
+          .fill('#f9fafb');
+        doc.restore();
+
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(8)
+          .fillColor(COLORS.textMuted);
+        doc.text('DESCRIPTION', colDesc.x, y + 9, { characterSpacing: 0.6 });
+        doc.text('QTÉ', colQty.x, y + 9, { width: colQty.w - 8, align: 'right', characterSpacing: 0.6 });
+        doc.text('P.U.', colPU.x, y + 9, { width: colPU.w - 8, align: 'right', characterSpacing: 0.6 });
+        doc.text('TOTAL', colTotal.x, y + 9, { width: colTotal.w, align: 'right', characterSpacing: 0.6 });
+
+        // Liseré rouge sous le header de tableau
+        doc
+          .save()
+          .strokeColor(COLORS.brand)
+          .lineWidth(1.5)
+          .moveTo(margin, y + rowH)
+          .lineTo(margin + contentWidth, y + rowH)
+          .stroke()
+          .restore();
+        return y + rowH;
+      };
+
+      const ensureSpaceOrPaginate = (
+        currentY: number,
+        needed: number,
+      ): { y: number; refreshedHeader: boolean } => {
+        const bottomLimit = doc.page.height - margin - 90; // garder place pour totaux/footer si dernière
+        if (currentY + needed > bottomLimit) {
+          doc.addPage();
+          drawHeader();
+          drawStatusWatermark();
+          const headerEnd = drawTableHeader(margin + 80);
+          return { y: headerEnd, refreshedHeader: true };
+        }
+        return { y: currentY, refreshedHeader: false };
+      };
+
+      const drawLineRow = (
+        y: number,
+        index: number,
+        line: { category: string; description: string; quantity: number; unitPrice: number; lineTotal: number },
+      ): number => {
+        const description = line.description || '—';
+        // Calcul hauteur description (wrapping)
+        doc.font('Helvetica').fontSize(10).fillColor(COLORS.text);
+        const descHeight = doc.heightOfString(description, { width: colDesc.w - 8 });
+        const rowH = Math.max(36, descHeight + 26);
+
+        // Fond zébré
+        if (index % 2 === 1) {
+          doc.save().rect(margin, y, contentWidth, rowH).fill(COLORS.rowAlt).restore();
+        }
+
+        // Catégorie chip
+        drawCategoryChip(colDesc.x, y + 8, line.category);
+
+        // Description
+        doc
+          .font('Helvetica')
+          .fontSize(10)
+          .fillColor(COLORS.text)
+          .text(description, colDesc.x, y + 24, { width: colDesc.w - 8 });
+
+        // Qté
+        doc
+          .font('Helvetica')
+          .fontSize(10)
+          .fillColor(COLORS.text)
+          .text(formatNumberFr(line.quantity), colQty.x, y + 12, {
+            width: colQty.w - 8,
+            align: 'right',
+          });
+
+        // P.U.
+        doc.text(fmtAmount(line.unitPrice), colPU.x, y + 12, {
+          width: colPU.w - 8,
+          align: 'right',
+        });
+
+        // Total
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(10)
+          .fillColor(COLORS.text)
+          .text(fmtAmount(line.lineTotal), colTotal.x, y + 12, {
+            width: colTotal.w,
+            align: 'right',
+          });
+
+        // Séparateur fin
+        doc
+          .save()
+          .strokeColor(COLORS.border)
+          .lineWidth(0.5)
+          .moveTo(margin, y + rowH)
+          .lineTo(margin + contentWidth, y + rowH)
+          .stroke()
+          .restore();
+
+        return y + rowH;
+      };
+
+      /* ========== Bloc Totaux ========== */
+
+      const drawTotalsBlock = (yStart: number): number => {
+        const boxW = 250;
+        const boxX = margin + contentWidth - boxW;
+        let cursorY = yStart + 16;
+
+        const renderRow = (label: string, value: string, opts?: { strong?: boolean }) => {
+          doc
+            .font(opts?.strong ? 'Helvetica-Bold' : 'Helvetica')
+            .fontSize(opts?.strong ? 11 : 10)
+            .fillColor(opts?.strong ? COLORS.text : COLORS.textMuted)
+            .text(label, boxX, cursorY, { width: boxW * 0.55 });
+          doc
+            .font(opts?.strong ? 'Helvetica-Bold' : 'Helvetica')
+            .fontSize(opts?.strong ? 11 : 10)
+            .fillColor(COLORS.text)
+            .text(value, boxX + boxW * 0.55, cursorY, {
+              width: boxW * 0.45,
+              align: 'right',
+            });
+          cursorY += opts?.strong ? 18 : 16;
+        };
+
+        renderRow('Sous-total', fmtAmount(invoice.subtotal));
+        if ((invoice.taxAmount || 0) > 0) {
+          renderRow('Taxes', fmtAmount(invoice.taxAmount));
+        }
+
+        // Bloc Total surligné Kadoor
+        const totalBoxY = cursorY + 6;
+        const totalBoxH = 44;
+        doc.save();
+        doc
+          .roundedRect(boxX, totalBoxY, boxW, totalBoxH, 8)
+          .fill(COLORS.brand);
+        doc
+          .fillColor('#ffffff')
+          .opacity(0.85)
+          .font('Helvetica')
+          .fontSize(8)
+          .text('TOTAL À PAYER', boxX + 14, totalBoxY + 8, {
+            width: boxW - 28,
+            characterSpacing: 0.6,
+          });
+        doc.opacity(1);
+        doc
+          .fillColor('#ffffff')
+          .font('Helvetica-Bold')
+          .fontSize(16)
+          .text(fmtAmount(invoice.totalAmount), boxX + 14, totalBoxY + 19, {
+            width: boxW - 28,
+            align: 'right',
+          });
+        doc.restore();
+
+        return totalBoxY + totalBoxH + 16;
+      };
+
+      /* ========== Notes & Conditions ========== */
+
+      const drawNotesAndTerms = (yStart: number): number => {
+        let y = yStart;
+        if (invoice.customerNote) {
+          const padding = 12;
+          // Mesure hauteur
+          doc.font('Helvetica').fontSize(9);
+          const noteHeight = doc.heightOfString(invoice.customerNote, {
+            width: contentWidth - padding * 2,
+          });
+          const boxH = noteHeight + padding * 2 + 16;
+
+          doc.save();
+          doc
+            .roundedRect(margin, y, contentWidth, boxH, 8)
+            .lineWidth(1)
+            .strokeColor(COLORS.border)
+            .fillAndStroke('#fafafa', COLORS.border);
+          doc.restore();
+          doc
+            .font('Helvetica-Bold')
+            .fontSize(7.5)
+            .fillColor(COLORS.brand)
+            .text('NOTE', margin + padding, y + padding, { characterSpacing: 0.6 });
+          doc
+            .font('Helvetica')
+            .fontSize(9)
+            .fillColor(COLORS.text)
+            .text(invoice.customerNote, margin + padding, y + padding + 14, {
+              width: contentWidth - padding * 2,
+              lineGap: 2,
+            });
+          y += boxH + 12;
+        }
+
+        // Conditions de paiement
+        doc
+          .font('Helvetica')
+          .fontSize(8)
+          .fillColor(COLORS.textMuted)
           .text(
-            `${i + 1}. [${line.category}] ${line.description} — ${line.quantity} x ${line.unitPrice.toLocaleString(
-              'fr-FR',
-            )} = ${line.lineTotal.toLocaleString('fr-FR')} FCFA`,
+            'Conditions de paiement : règlement intégral à réception de la facture, sauf échéance précisée. Paiement sécurisé via Paystack disponible depuis votre espace client.',
+            margin,
+            y,
+            { width: contentWidth, lineGap: 2, align: 'left' },
           );
-      });
-      doc.moveDown();
-      doc.fontSize(11).text(`Sous-total: ${invoice.subtotal.toLocaleString('fr-FR')} FCFA`);
-      doc.text(`Taxe: ${invoice.taxAmount.toLocaleString('fr-FR')} FCFA`);
-      doc.fontSize(13).text(`Total: ${invoice.totalAmount.toLocaleString('fr-FR')} FCFA`, { align: 'right' });
+        return y + 30;
+      };
+
+      /* ========== Footer (numérotation des pages) ========== */
+
+      const drawFooterOnAllPages = () => {
+        const range = doc.bufferedPageRange();
+        for (let i = 0; i < range.count; i += 1) {
+          doc.switchToPage(range.start + i);
+          const footerY = doc.page.height - margin + 10;
+
+          // Liseré
+          doc
+            .save()
+            .strokeColor(COLORS.border)
+            .lineWidth(0.5)
+            .moveTo(margin, footerY - 8)
+            .lineTo(margin + contentWidth, footerY - 8)
+            .stroke()
+            .restore();
+
+          doc
+            .font('Helvetica')
+            .fontSize(8)
+            .fillColor(COLORS.textMuted)
+            .text(
+              `KADOOR SERVICE · contact@kadoorservice.com · www.kadoorservice.com`,
+              margin,
+              footerY,
+              { width: contentWidth * 0.7, align: 'left' },
+            );
+          doc
+            .font('Helvetica')
+            .fontSize(8)
+            .fillColor(COLORS.textMuted)
+            .text(
+              `Page ${i + 1} / ${range.count}`,
+              margin + contentWidth * 0.7,
+              footerY,
+              { width: contentWidth * 0.3, align: 'right' },
+            );
+        }
+      };
+
+      /* ========== Composition ========== */
+
+      drawHeader();
+      drawStatusWatermark();
+      let y = margin + 80;
+
+      y = drawMetaBlock(y);
+      y = drawPartiesBlock(y);
+
+      // Titre section lignes
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(11)
+        .fillColor(COLORS.text)
+        .text('Détail des prestations', margin, y);
+      y += 18;
+
+      y = drawTableHeader(y);
+
+      const lines = invoice.lines || [];
+      if (lines.length === 0) {
+        doc
+          .font('Helvetica-Oblique')
+          .fontSize(10)
+          .fillColor(COLORS.textMuted)
+          .text('Aucune ligne enregistrée pour cette facture.', margin + 12, y + 14);
+        y += 40;
+      } else {
+        lines.forEach((line, idx) => {
+          const space = ensureSpaceOrPaginate(y, 60);
+          y = space.y;
+          y = drawLineRow(y, idx, line);
+        });
+      }
+
+      // Pagination si totaux ne tiennent pas
+      const totalsNeeded = 90 + (invoice.customerNote ? 60 : 0) + 40;
+      const space = ensureSpaceOrPaginate(y, totalsNeeded);
+      y = space.y;
+      if (!space.refreshedHeader) y += 8;
+
+      y = drawTotalsBlock(y);
+      y = drawNotesAndTerms(y);
+
+      drawFooterOnAllPages();
+
       doc.end();
     });
   }
