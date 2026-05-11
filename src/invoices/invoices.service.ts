@@ -866,6 +866,9 @@ export class InvoicesService {
         const range = doc.bufferedPageRange();
         for (let i = 0; i < range.count; i += 1) {
           doc.switchToPage(range.start + i);
+          // Le footer est volontairement placé dans la marge basse :
+          // on désactive `lineBreak` pour empêcher PDFKit de paginer
+          // automatiquement lorsque y dépasse `pageHeight - bottomMargin`.
           const footerY = doc.page.height - margin + 10;
 
           // Liseré
@@ -886,7 +889,11 @@ export class InvoicesService {
               `KADOOR SERVICE · contact@kadoorservice.com · www.kadoorservice.com`,
               margin,
               footerY,
-              { width: contentWidth * 0.7, align: 'left' },
+              {
+                width: contentWidth * 0.7,
+                align: 'left',
+                lineBreak: false,
+              },
             );
           doc
             .font('Helvetica')
@@ -896,7 +903,11 @@ export class InvoicesService {
               `Page ${i + 1} / ${range.count}`,
               margin + contentWidth * 0.7,
               footerY,
-              { width: contentWidth * 0.3, align: 'right' },
+              {
+                width: contentWidth * 0.3,
+                align: 'right',
+                lineBreak: false,
+              },
             );
         }
       };
