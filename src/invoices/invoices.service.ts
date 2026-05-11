@@ -328,7 +328,7 @@ export class InvoicesService {
         .replace(/[\u00A0\u202F]/g, ' ');
     };
 
-    const logoPath = resolveAssetPath('kadoor-logo.png');
+    const logoPath = resolveAssetPath('logo_kadoor_service.png');
 
     return new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({
@@ -353,24 +353,28 @@ export class InvoicesService {
 
       /* ========== Helpers de rendu ========== */
 
+      // Dimensions cibles du logo paysage Kadoor (déjà avec le wordmark "Kadoor Services")
+      const LOGO_BOX_W = 120;
+      const LOGO_BOX_H = 56;
+
       const drawBrandLogo = (x: number, y: number) => {
         if (logoPath) {
-          // Vrai logo PNG (préservation du ratio, hauteur ~42pt)
+          // Vrai logo PNG paysage (ratio préservé via fit, le logo contient déjà le wordmark)
           try {
-            doc.image(logoPath, x, y, { fit: [44, 44] });
+            doc.image(logoPath, x, y, { fit: [LOGO_BOX_W, LOGO_BOX_H] });
             return;
           } catch {
             /* fallback ci-dessous */
           }
         }
-        // Fallback : pastille rouge "K"
+        // Fallback : pastille rouge "Kadoor"
         doc.save();
-        doc.roundedRect(x, y, 38, 38, 10).fill(COLORS.brand);
+        doc.roundedRect(x, y + 8, 110, 40, 8).fill(COLORS.brand);
         doc
           .fillColor('#ffffff')
           .font('Helvetica-Bold')
-          .fontSize(20)
-          .text('K', x, y + 8, { width: 38, align: 'center' });
+          .fontSize(18)
+          .text('KADOOR', x, y + 18, { width: 110, align: 'center' });
         doc.restore();
       };
 
@@ -476,32 +480,35 @@ export class InvoicesService {
 
         const headerTop = margin;
 
-        // Bloc gauche : logo PNG + identité
-        drawBrandLogo(margin, headerTop - 4);
-        doc
-          .font('Helvetica-Bold')
-          .fontSize(16)
-          .fillColor(COLORS.text)
-          .text('KADOOR SERVICE', margin + 56, headerTop + 2);
+        // Bloc gauche : logo réel Kadoor (contient déjà "Kadoor Services") + tagline
+        drawBrandLogo(margin, headerTop - 6);
         doc
           .font('Helvetica')
           .fontSize(9)
           .fillColor(COLORS.textMuted)
-          .text("Côte d'Ivoire · Auto & Immobilier", margin + 56, headerTop + 22);
+          .text(
+            "Côte d'Ivoire · Auto & Immobilier",
+            margin,
+            headerTop + LOGO_BOX_H - 2,
+            {
+              width: LOGO_BOX_W + 80,
+            },
+          );
 
-        // Bloc droit : "FACTURE" + référence dans une carte douce
+        // Bloc droit : "FACTURE" + référence dans une carte douce alignée sur le logo
         const rightW = 220;
         const rightX = margin + contentWidth - rightW;
+        const rightCardH = 56;
         doc.save();
         doc
-          .roundedRect(rightX, headerTop - 4, rightW, 52, 10)
+          .roundedRect(rightX, headerTop - 4, rightW, rightCardH, 10)
           .fill(COLORS.brandSoft);
         doc.restore();
         doc
           .font('Helvetica-Bold')
           .fontSize(20)
           .fillColor(COLORS.brand)
-          .text('FACTURE', rightX, headerTop + 2, {
+          .text('FACTURE', rightX, headerTop + 6, {
             width: rightW - 14,
             align: 'right',
           });
@@ -509,12 +516,12 @@ export class InvoicesService {
           .font('Helvetica')
           .fontSize(10)
           .fillColor(COLORS.brandDark)
-          .text(`N° ${invoice.reference}`, rightX, headerTop + 28, {
+          .text(`N° ${invoice.reference}`, rightX, headerTop + 32, {
             width: rightW - 14,
             align: 'right',
           });
 
-        drawDivider(headerTop + 60);
+        drawDivider(headerTop + LOGO_BOX_H + 18);
       };
 
       /* ========== Métadonnées (dates + statut) ========== */
@@ -673,7 +680,7 @@ export class InvoicesService {
           doc.addPage();
           drawHeader();
           drawStatusWatermark();
-          const headerEnd = drawTableHeader(margin + 80);
+          const headerEnd = drawTableHeader(margin + 94);
           return { y: headerEnd, refreshedHeader: true };
         }
         return { y: currentY, refreshedHeader: false };
@@ -898,7 +905,7 @@ export class InvoicesService {
 
       drawHeader();
       drawStatusWatermark();
-      let y = margin + 80;
+      let y = margin + 94;
 
       y = drawMetaBlock(y);
       y = drawPartiesBlock(y);
