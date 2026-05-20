@@ -30,6 +30,13 @@ enum InvoiceLineCategory {
   OTHER
 }
 
+/// Sens du solde affiché sur la facture (paiement client vs remboursement Kadoor)
+enum InvoiceSettlementType {
+  CLIENT_PAYS
+  KADOR_REFUND
+  ZERO_BALANCE
+}
+
 model User {
   id                  String    @id @default(uuid())
   email               String    @unique
@@ -176,6 +183,12 @@ model Booking {
   apartmentId String?
   apartment   Apartment? @relation(fields: [apartmentId], references: [id])
   invoices    Invoice[]
+
+  /// Caution / dépôt de garantie (optionnel)
+  depositAmount        Float?
+  depositPaymentMethod String?
+  depositCollectedAt   DateTime?
+  depositNote          String?
 }
 
 model Invoice {
@@ -193,6 +206,17 @@ model Invoice {
   paidAt            DateTime?
   internalNote      String?
   customerNote      String?
+  /// Snapshot caution au moment de la facture (null = pas de caution)
+  depositAmount           Float?
+  depositDeductionsAmount Float?
+  depositRefundAmount     Float?
+  depositSupplementAmount Float?
+  depositPaymentMethod    String?
+  depositNote             String?
+  settlementType          InvoiceSettlementType @default(CLIENT_PAYS)
+  /// Montant principal : à payer (client) ou à rendre (Kadoor selon settlementType)
+  amountDue               Float                 @default(0)
+  refundedAt              DateTime?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 

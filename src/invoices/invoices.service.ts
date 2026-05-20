@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InvoiceStatus } from '@prisma/client';
+import { InvoiceSettlementType, InvoiceStatus } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 import PDFDocument from 'pdfkit';
@@ -64,6 +64,59 @@ export class InvoicesService {
     return { subtotal, totalAmount };
   }
 
+  /** Décompte caution : retenues = sous-total des lignes (hors taxe). */
+  private computeDepositSnapshot(
+    depositEnabled: boolean | undefined,
+    depositAmount: number | undefined,
+    deductionsSubtotal: number,
+  ) {
+    if (!depositEnabled) {
+      return {
+        depositAmount: null,
+        depositDeductionsAmount: null,
+        depositRefundAmount: null,
+        depositSupplementAmount: null,
+      };
+    }
+    const amount = Number(depositAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException(
+        'Montant de caution requis lorsque la caution est activée',
+      );
+    }
+    const deductions = Number(deductionsSubtotal) || 0;
+    return {
+      depositAmount: amount,
+      depositDeductionsAmount: deductions,
+      depositRefundAmount: Math.max(0, amount - deductions),
+      depositSupplementAmount: Math.max(0, deductions - amount),
+    };
+  }
+
+  private computeSettlement(
+    deposit: {
+      depositAmount: number | null;
+      depositRefundAmount: number | null;
+      depositSupplementAmount: number | null;
+    },
+    taxAmount: number,
+    totalAmount: number,
+  ): { settlementType: InvoiceSettlementType; amountDue: number } {
+    const tax = Number(taxAmount) || 0;
+    if (deposit.depositAmount == null || deposit.depositAmount <= 0) {
+      return { settlementType: 'CLIENT_PAYS', amountDue: totalAmount };
+    }
+    const supplement = deposit.depositSupplementAmount ?? 0;
+    const refund = deposit.depositRefundAmount ?? 0;
+    if (supplement > 0) {
+      return { settlementType: 'CLIENT_PAYS', amountDue: supplement + tax };
+    }
+    if (refund > 0) {
+      return { settlementType: 'KADOR_REFUND', amountDue: refund };
+    }
+    return { settlementType: 'ZERO_BALANCE', amountDue: 0 };
+  }
+
   private invoiceInclude = {
     booking: true,
     user: { select: { id: true, email: true, firstName: true, lastName: true } },
@@ -80,30 +133,63 @@ export class InvoicesService {
 
     const { subtotal, totalAmount } = this.toAmount(dto.lines, dto.taxAmount || 0);
     const reference = this.buildReference();
+    const deposit = this.computeDepositSnapshot(
+      dto.depositEnabled,
+      dto.depositAmount,
+      subtotal,
+    );
+    const settlement = this.computeSettlement(
+      deposit,
+      dto.taxAmount || 0,
+      totalAmount,
+    );
 
-    return this.prisma.invoice.create({
-      data: {
-        reference,
-        bookingId: booking.id,
-        userId: booking.userId,
-        createdById: adminId,
-        dueAt: dto.dueAt ? new Date(dto.dueAt) : null,
-        taxAmount: dto.taxAmount || 0,
-        subtotal,
-        totalAmount,
-        internalNote: dto.internalNote,
-        customerNote: dto.customerNote,
-        lines: {
-          create: dto.lines.map((l) => ({
-            category: l.category,
-            description: l.description,
-            quantity: l.quantity,
-            unitPrice: l.unitPrice,
-            lineTotal: Number(l.quantity) * Number(l.unitPrice),
-          })),
+    return this.prisma.$transaction(async (tx) => {
+      if (dto.depositEnabled && deposit.depositAmount != null) {
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: {
+            depositAmount: deposit.depositAmount,
+            depositPaymentMethod: dto.depositPaymentMethod ?? null,
+            depositCollectedAt: dto.depositCollectedAt
+              ? new Date(dto.depositCollectedAt)
+              : booking.depositCollectedAt ?? new Date(),
+            depositNote: dto.depositNote?.trim() || null,
+          },
+        });
+      }
+
+      return tx.invoice.create({
+        data: {
+          reference,
+          bookingId: booking.id,
+          userId: booking.userId,
+          createdById: adminId,
+          dueAt: dto.dueAt ? new Date(dto.dueAt) : null,
+          taxAmount: dto.taxAmount || 0,
+          subtotal,
+          totalAmount,
+          internalNote: dto.internalNote,
+          customerNote: dto.customerNote,
+          ...deposit,
+          depositPaymentMethod: dto.depositEnabled
+            ? dto.depositPaymentMethod ?? null
+            : null,
+          depositNote: dto.depositEnabled ? dto.depositNote?.trim() || null : null,
+          settlementType: settlement.settlementType,
+          amountDue: settlement.amountDue,
+          lines: {
+            create: dto.lines.map((l) => ({
+              category: l.category,
+              description: l.description,
+              quantity: l.quantity,
+              unitPrice: l.unitPrice,
+              lineTotal: Number(l.quantity) * Number(l.unitPrice),
+            })),
+          },
         },
-      },
-      include: this.invoiceInclude,
+        include: this.invoiceInclude,
+      });
     });
   }
 
@@ -130,29 +216,78 @@ export class InvoicesService {
     const lines = dto.lines || existing.lines;
     const { subtotal, totalAmount } = this.toAmount(lines, dto.taxAmount ?? existing.taxAmount);
 
-    return this.prisma.invoice.update({
-      where: { id },
-      data: {
-        dueAt: dto.dueAt ? new Date(dto.dueAt) : existing.dueAt,
-        taxAmount: dto.taxAmount ?? existing.taxAmount,
-        subtotal,
-        totalAmount,
-        internalNote: dto.internalNote ?? existing.internalNote,
-        customerNote: dto.customerNote ?? existing.customerNote,
-        lines: dto.lines
-          ? {
-              deleteMany: {},
-              create: dto.lines.map((l) => ({
-                category: l.category,
-                description: l.description,
-                quantity: l.quantity,
-                unitPrice: l.unitPrice,
-                lineTotal: Number(l.quantity) * Number(l.unitPrice),
-              })),
-            }
-          : undefined,
-      },
-      include: this.invoiceInclude,
+    const depositEnabled =
+      dto.depositEnabled !== undefined
+        ? dto.depositEnabled
+        : existing.depositAmount != null && existing.depositAmount > 0;
+    const depositAmountInput =
+      dto.depositAmount !== undefined ? dto.depositAmount : existing.depositAmount ?? undefined;
+
+    const deposit = this.computeDepositSnapshot(
+      depositEnabled,
+      depositAmountInput,
+      subtotal,
+    );
+    const settlement = this.computeSettlement(
+      deposit,
+      dto.taxAmount ?? existing.taxAmount,
+      totalAmount,
+    );
+
+    return this.prisma.$transaction(async (tx) => {
+      if (depositEnabled && deposit.depositAmount != null) {
+        await tx.booking.update({
+          where: { id: existing.bookingId },
+          data: {
+            depositAmount: deposit.depositAmount,
+            depositPaymentMethod:
+              dto.depositPaymentMethod ?? existing.depositPaymentMethod ?? null,
+            depositCollectedAt: dto.depositCollectedAt
+              ? new Date(dto.depositCollectedAt)
+              : undefined,
+            depositNote:
+              dto.depositNote !== undefined
+                ? dto.depositNote?.trim() || null
+                : existing.depositNote,
+          },
+        });
+      }
+
+      return tx.invoice.update({
+        where: { id },
+        data: {
+          dueAt: dto.dueAt ? new Date(dto.dueAt) : existing.dueAt,
+          taxAmount: dto.taxAmount ?? existing.taxAmount,
+          subtotal,
+          totalAmount,
+          internalNote: dto.internalNote ?? existing.internalNote,
+          customerNote: dto.customerNote ?? existing.customerNote,
+          ...deposit,
+          depositPaymentMethod: depositEnabled
+            ? dto.depositPaymentMethod ?? existing.depositPaymentMethod ?? null
+            : null,
+          depositNote: depositEnabled
+            ? (dto.depositNote !== undefined
+                ? dto.depositNote?.trim() || null
+                : existing.depositNote)
+            : null,
+          settlementType: settlement.settlementType,
+          amountDue: settlement.amountDue,
+          lines: dto.lines
+            ? {
+                deleteMany: {},
+                create: dto.lines.map((l) => ({
+                  category: l.category,
+                  description: l.description,
+                  quantity: l.quantity,
+                  unitPrice: l.unitPrice,
+                  lineTotal: Number(l.quantity) * Number(l.unitPrice),
+                })),
+              }
+            : undefined,
+        },
+        include: this.invoiceInclude,
+      });
     });
   }
 
@@ -169,9 +304,14 @@ export class InvoicesService {
   async markPaid(id: string) {
     const invoice = await this.findOneAdmin(id);
     if (invoice.status === 'CANCELLED') throw new BadRequestException('Facture annulée');
+    const now = new Date();
     return this.prisma.invoice.update({
       where: { id },
-      data: { status: 'PAID', paidAt: new Date() },
+      data: {
+        status: 'PAID',
+        paidAt: now,
+        refundedAt: invoice.settlementType === 'KADOR_REFUND' ? now : invoice.refundedAt,
+      },
       include: this.invoiceInclude,
     });
   }
@@ -215,6 +355,15 @@ export class InvoicesService {
     if (!['SENT', 'OVERDUE'].includes(invoice.status)) {
       throw new BadRequestException('Facture non payable');
     }
+    if (invoice.settlementType !== 'CLIENT_PAYS') {
+      throw new BadRequestException(
+        'Cette facture ne requiert pas de paiement en ligne : Kadoor vous remboursera la caution ou le solde est nul.',
+      );
+    }
+    const amountDue = Number(invoice.amountDue) || 0;
+    if (amountDue <= 0) {
+      throw new BadRequestException('Aucun montant à payer pour cette facture');
+    }
 
     const paystackReference = `INV-${invoice.id}-${Date.now()}`;
     const webAppUrl = this.configService.get<string>('WEB_APP_URL') || 'http://localhost:3000';
@@ -223,7 +372,7 @@ export class InvoicesService {
 
     const result = await this.paystackService.initializeTransaction({
       email: userEmail,
-      amount: invoice.totalAmount,
+      amount: amountDue,
       reference: paystackReference,
       callback_url: callback,
       metadata: { invoiceId: invoice.id, type: 'invoice' },
@@ -237,19 +386,32 @@ export class InvoicesService {
     return { paymentUrl: result.authorization_url, reference: paystackReference };
   }
 
-  async verifyPayment(userId: string, id: string) {
+  async verifyPayment(userId: string, id: string, paystackRefFromCallback?: string) {
     const invoice = await this.findMineOne(userId, id);
-    if (!invoice.paystackReference) throw new BadRequestException('Référence de paiement absente');
+    const reference =
+      paystackRefFromCallback?.trim() || invoice.paystackReference || undefined;
+    if (!reference) throw new BadRequestException('Référence de paiement absente');
 
-    const verification = await this.paystackService.verifyTransaction(invoice.paystackReference);
-    if (verification.status === 'success') {
-      await this.prisma.invoice.update({
-        where: { id: invoice.id },
-        data: { status: 'PAID', paidAt: new Date() },
-      });
-      return { status: 'success' };
+    if (invoice.status === 'PAID') {
+      return { status: 'success', invoice, message: 'Facture déjà payée' };
     }
-    return { status: verification.status };
+
+    const verification = await this.paystackService.verifyTransaction(reference);
+    if (verification.status === 'success') {
+      const updated = await this.prisma.invoice.update({
+        where: { id: invoice.id },
+        data: { status: 'PAID', paidAt: new Date(), paystackReference: reference },
+        include: this.invoiceInclude,
+      });
+      return { status: 'success', invoice: updated };
+    }
+
+    const mapped =
+      verification.status === 'failed' || verification.status === 'abandoned'
+        ? 'failed'
+        : 'pending';
+
+    return { status: mapped, invoice, paystackStatus: verification.status };
   }
 
   async handleWebhook(signature: string, rawBody: string, body: any) {
@@ -780,19 +942,62 @@ export class InvoicesService {
           renderRow('Taxes', fmtAmount(invoice.taxAmount));
         }
 
-        // Bloc Total surligné Kadoor
+        if (invoice.depositAmount != null && invoice.depositAmount > 0) {
+          cursorY += 4;
+          doc
+            .font('Helvetica-Bold')
+            .fontSize(8)
+            .fillColor(COLORS.brand)
+            .text('DÉCOMPTE CAUTION', boxX, cursorY, { width: boxW });
+          cursorY += 14;
+          renderRow('Caution encaissée', fmtAmount(invoice.depositAmount));
+          renderRow(
+            'Retenues (lignes)',
+            fmtAmount(invoice.depositDeductionsAmount ?? invoice.subtotal),
+          );
+          renderRow(
+            'À rendre au client',
+            fmtAmount(invoice.depositRefundAmount ?? 0),
+            { strong: true },
+          );
+          if ((invoice.depositSupplementAmount ?? 0) > 0) {
+            renderRow(
+              'Complément à facturer',
+              fmtAmount(invoice.depositSupplementAmount ?? 0),
+            );
+          }
+          cursorY += 4;
+        }
+
+        // Bloc principal : total à payer OU à rendre au client
+        const settlement = invoice.settlementType || 'CLIENT_PAYS';
+        const amountDue = Number(invoice.amountDue ?? invoice.totalAmount);
+        let bannerLabel = 'TOTAL À PAYER';
+        let bannerFill = COLORS.brand;
+        if (settlement === 'KADOR_REFUND') {
+          bannerLabel = 'À RENDRE AU CLIENT';
+          bannerFill = COLORS.success;
+        } else if (settlement === 'ZERO_BALANCE') {
+          bannerLabel = 'COMPTE RÉGLÉ';
+          bannerFill = COLORS.textMuted;
+        } else if (
+          invoice.depositAmount != null &&
+          invoice.depositAmount > 0 &&
+          (invoice.depositSupplementAmount ?? 0) > 0
+        ) {
+          bannerLabel = 'COMPLÉMENT À PAYER';
+        }
+
         const totalBoxY = cursorY + 6;
         const totalBoxH = 44;
         doc.save();
-        doc
-          .roundedRect(boxX, totalBoxY, boxW, totalBoxH, 8)
-          .fill(COLORS.brand);
+        doc.roundedRect(boxX, totalBoxY, boxW, totalBoxH, 8).fill(bannerFill);
         doc
           .fillColor('#ffffff')
           .opacity(0.85)
           .font('Helvetica')
           .fontSize(8)
-          .text('TOTAL À PAYER', boxX + 14, totalBoxY + 8, {
+          .text(bannerLabel, boxX + 14, totalBoxY + 8, {
             width: boxW - 28,
             characterSpacing: 0.6,
           });
@@ -801,7 +1006,7 @@ export class InvoicesService {
           .fillColor('#ffffff')
           .font('Helvetica-Bold')
           .fontSize(16)
-          .text(fmtAmount(invoice.totalAmount), boxX + 14, totalBoxY + 19, {
+          .text(fmtAmount(amountDue), boxX + 14, totalBoxY + 19, {
             width: boxW - 28,
             align: 'right',
           });

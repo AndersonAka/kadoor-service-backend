@@ -42,9 +42,13 @@ export class InvoicesController {
 
   @UseGuards(AuthGuard('jwt'))
   @Post('verify-payment/:id')
-  verifyPayment(@Request() req: any, @Param('id') id: string) {
+  verifyPayment(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body?: { reference?: string },
+  ) {
     const userId = req.user?.id || req.user?.userId;
-    return this.invoicesService.verifyPayment(userId, id);
+    return this.invoicesService.verifyPayment(userId, id, body?.reference);
   }
 
   @Post('paystack/webhook')
