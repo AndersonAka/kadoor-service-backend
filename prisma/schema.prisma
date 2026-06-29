@@ -10,6 +10,40 @@ enum Role {
   USER
   ADMIN
   MANAGER
+  MERCHANT
+}
+
+enum PartnerType {
+  PHYSICAL
+  COMPANY
+  FREELANCE
+}
+
+enum PartnerCategory {
+  AUTO
+  APARTMENT
+  BOTH
+}
+
+enum PartnerStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum GiftCardStatus {
+  PENDING
+  ACTIVE
+  USED
+  EXPIRED
+  CANCELLED
 }
 
 enum InvoiceStatus {
@@ -55,13 +89,15 @@ model User {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   
-  bookings      Booking[]
-  reviews       Review[]
-  incidents     Incident[]
-  favorites     Favorite[]
-  notifications Notification[]
-  invoices      Invoice[] @relation("CustomerInvoices")
-  createdInvoices Invoice[] @relation("AdminCreatedInvoices")
+  bookings        Booking[]
+  reviews         Review[]
+  incidents       Incident[]
+  favorites       Favorite[]
+  notifications   Notification[]
+  invoices        Invoice[]    @relation("CustomerInvoices")
+  createdInvoices Invoice[]    @relation("AdminCreatedInvoices")
+  partner         Partner?
+  giftCards       GiftCard[]
 }
 
 /// Tarification partagée par type de véhicule (location + forfaits km journaliers + assurance)
@@ -403,4 +439,173 @@ model Notification {
   user        User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
+}
+
+// ─── Partenaires marchands (KYC) ──────────────────────────────────────────────
+
+model Partner {
+  id          String          @id @default(uuid())
+  partnerType PartnerType
+  category    PartnerCategory
+  status      PartnerStatus   @default(PENDING)
+
+  // §1A — Personne physique
+  fullName     String?
+  birthDate    DateTime?
+  birthPlace   String?
+  idNumber     String?
+  idType       String?   // passeport / permis / carte d'identité
+  idExpiry     DateTime?
+  nationality  String?
+
+  // §1B — Personne morale
+  legalName            String?
+  registrationNumber   String?
+  registrationDate     DateTime?
+  legalForm            String?
+  incorporationCountry String?
+  businessSector       String?
+
+  // §1C — Coordonnées
+  address  String?
+  phone    String?
+  phone2   String?
+  email    String
+  website  String?
+
+  // §2 — Bénéficiaires effectifs (JSON : [{name, title, nationality, ownershipPct, birthDate, idNumber}])
+  beneficiaries Json?
+  isPPE         Boolean @default(false)
+  ppeDetails    String?
+
+  // §3 — Informations financières
+  fundSources            String[]
+  fundSourceOther        String?
+  estimatedAnnualRevenue Float?
+  estimatedMonthlyTx     Int?
+  avgTransactionValue    Float?
+  maxTransactionValue    Float?
+  bank1Name              String?
+  bank1Country           String?
+  bank2Name              String?
+  bank2Country           String?
+  otherPlatforms         String[]
+
+  // §4 — Section automobile
+  vehicleCount     Int?
+  vehicleTypes     String[]
+  fleetTotalValue  Float?
+  fleetRenewalYear Int?
+  autoCompliance   String[]
+  geoZones         String?
+  pickupPoints     String?
+
+  // §5 — Section appartement
+  unitCount            Int?
+  housingTypes         String[]
+  mainCities           String?
+  avgMonthlyRent       Float?
+  realEstateCompliance String[]
+  includedServices     String[]
+
+  // §7 — Évaluation des risques (interne)
+  riskScoreCountry      Float?
+  riskScoreShareholders Float?
+  riskScorePPE          Float?
+  riskScoreFunds        Float?
+  riskScoreVolume       Float?
+  riskScoreReputation   Float?
+  riskScoreCompliance   Float?
+  riskTotalScore        Float?
+  riskLevel             RiskLevel?
+  riskNotes             String?
+  riskMeasures          String?
+  nextReviewAt          DateTime?
+
+  // §8 — Signatures
+  signedAt      DateTime?
+  signedBy      String?
+  kycAnalyst    String?
+  validatedAt   DateTime?
+  validatedById String?
+
+  // Compte utilisateur MERCHANT lié
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id])
+
+  documents            PartnerDocument[]
+  giftCardTransactions GiftCardTransaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PartnerDocument {
+  id         String   @id @default(uuid())
+  partnerId  String
+  partner    Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  docType    String   // ID_CARD | KBIS | PROOF_OF_ADDRESS | INSURANCE | VEHICLE_REGISTRATION | INSPECTION | LEASE | MUNICIPAL_PERMIT | PHOTOS | CONTRACT | AML_FORM
+  fileUrl    String
+  isVerified Boolean  @default(false)
+  verifiedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ─── Cartes cadeaux ───────────────────────────────────────────────────────────
+
+model GiftCard {
+  id     String        @id @default(uuid())
+  code   String        @unique
+  status GiftCardStatus @default(PENDING)
+
+  initialAmount  Float
+  currentBalance Float
+
+  // Personnalisation
+  theme          String?
+  recipientName  String?
+  recipientEmail String?
+  senderMessage  String?
+
+  // Validité
+  validFrom  DateTime  @default(now())
+  validUntil DateTime
+
+  // Paiement
+  paystackReference String?
+
+  // Acheteur
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  transactions GiftCardTransaction[]
+
+  // Cycle de vie admin
+  validatedAt   DateTime?
+  validatedById String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model GiftCardTransaction {
+  id String @id @default(uuid())
+
+  giftCardId String
+  giftCard   GiftCard @relation(fields: [giftCardId], references: [id])
+
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id])
+
+  amountDeducted Float
+  balanceBefore  Float
+  balanceAfter   Float
+
+  note       String?
+  receiptRef String?
+
+  createdAt DateTime @default(now())
 }

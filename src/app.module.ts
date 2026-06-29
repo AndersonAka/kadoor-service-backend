@@ -22,6 +22,9 @@ import { SettingsModule } from './settings/settings.module';
 import { ContactModule } from './contact/contact.module';
 import { PromoCodesModule } from './promo-codes/promo-codes.module';
 import { InvoicesModule } from './invoices/invoices.module';
+import { PartnersModule } from './partners/partners.module';
+import { GiftCardsModule } from './gift-cards/gift-cards.module';
+import { MerchantModule } from './merchant/merchant.module';
 
 @Module({
   imports: [
@@ -48,6 +51,9 @@ import { InvoicesModule } from './invoices/invoices.module';
     ContactModule,
     PromoCodesModule,
     InvoicesModule,
+    PartnersModule,
+    GiftCardsModule,
+    MerchantModule,
   ],
   controllers: [AppController],
   providers: [AppService],
