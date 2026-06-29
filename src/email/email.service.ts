@@ -193,6 +193,167 @@ export class EmailService {
   }
 
   /**
+   * Notifie le destinataire de la carte cadeau (email sur la carte) + l'acheteur
+   * Appelé lors de la validation admin (PENDING → ACTIVE)
+   */
+  async sendGiftCardValidated(card: {
+    code: string;
+    initialAmount: number;
+    currentBalance: number;
+    theme: string;
+    recipientName?: string | null;
+    recipientEmail?: string | null;
+    senderMessage?: string | null;
+    validUntil: Date;
+    user: { email: string; firstName?: string | null; lastName?: string | null };
+  }): Promise<void> {
+    const cardUrl = `${this.frontendUrl}/fr/cadeau/${card.code}`;
+    const formatPrice = (n: number) => n.toLocaleString('fr-FR') + ' FCFA';
+    const validUntilFr = new Date(card.validUntil).toLocaleDateString('fr-FR', {
+      day: '2-digit', month: 'long', year: 'numeric',
+    });
+    const themeColor = card.theme === 'blue' ? '#1a3a6b' : '#5c0a12';
+
+    // ── Email au destinataire (si recipientEmail renseigné) ──
+    if (card.recipientEmail) {
+      const recipientHtml = this.buildGiftCardRecipientEmail({
+        code: card.code,
+        amount: formatPrice(card.initialAmount),
+        recipientName: card.recipientName || 'vous',
+        senderMessage: card.senderMessage,
+        cardUrl,
+        validUntilFr,
+        themeColor,
+      });
+      await this.sendEmail(
+        card.recipientEmail,
+        `🎁 Vous avez reçu une carte cadeau Kadoor — ${formatPrice(card.initialAmount)}`,
+        recipientHtml,
+        `${card.recipientName || 'Quelqu\'un'} vous offre ${formatPrice(card.initialAmount)} à dépenser chez nos partenaires`,
+      );
+    }
+
+    // ── Email à l'acheteur (user qui a précommandé) ──
+    const ordererName = `${card.user.firstName || ''} ${card.user.lastName || ''}`.trim() || 'Client';
+    const ordererHtml = this.buildGiftCardOrdererEmail({
+      code: card.code,
+      amount: formatPrice(card.initialAmount),
+      ordererName,
+      recipientName: card.recipientName,
+      cardUrl,
+      validUntilFr,
+      themeColor,
+    });
+    await this.sendEmail(
+      card.user.email,
+      `✅ Votre carte cadeau Kadoor est activée — ${formatPrice(card.initialAmount)}`,
+      ordererHtml,
+      `Votre carte cadeau de ${formatPrice(card.initialAmount)} est maintenant active`,
+    );
+  }
+
+  private buildGiftCardRecipientEmail(ctx: {
+    code: string; amount: string; recipientName: string;
+    senderMessage?: string | null; cardUrl: string; validUntilFr: string; themeColor: string;
+  }): string {
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;color:#333;">
+  <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.1);">
+    <!-- Header -->
+    <div style="background:${ctx.themeColor};padding:32px 24px;text-align:center;">
+      <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#c9a227;">Kadoor Service</p>
+      <h1 style="margin:0;font-size:24px;color:#e8d5a3;font-family:Georgia,serif;">Carte Cadeau</h1>
+      <p style="margin:8px 0 0;font-size:14px;color:rgba(255,255,255,.75);">Vous avez reçu un cadeau !</p>
+    </div>
+
+    <!-- Carte visuelle -->
+    <div style="background:${ctx.themeColor};padding:0 24px 24px;">
+      <div style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:24px;text-align:center;">
+        <p style="margin:0 0 4px;font-size:11px;color:#c9a227;font-weight:700;letter-spacing:.15em;text-transform:uppercase;">Montant</p>
+        <p style="margin:0;font-size:36px;font-weight:700;color:#fff;">${ctx.amount}</p>
+        <div style="height:2px;background:linear-gradient(90deg,transparent,#c9a227,transparent);margin:12px 0;"></div>
+        <p style="margin:0;font-size:14px;color:rgba(255,255,255,.8);">Pour : <strong style="color:#e8d5a3;">${ctx.recipientName}</strong></p>
+        ${ctx.senderMessage ? `<p style="margin:10px 0 0;font-size:13px;color:rgba(255,255,255,.65);font-style:italic;">« ${ctx.senderMessage} »</p>` : ''}
+      </div>
+    </div>
+
+    <!-- Contenu -->
+    <div style="padding:28px 24px;">
+      <p>Bonjour <strong>${ctx.recipientName}</strong>,</p>
+      <p>Vous avez reçu une <strong>carte cadeau Kadoor Service</strong> d'une valeur de <strong>${ctx.amount}</strong>. Elle est désormais active et utilisable immédiatement chez tous nos partenaires agréés.</p>
+
+      <!-- Code + bouton -->
+      <div style="background:#f8f8f8;border-radius:10px;padding:20px;text-align:center;margin:20px 0;border:1px solid #eee;">
+        <p style="margin:0 0 6px;font-size:11px;text-transform:uppercase;color:#999;letter-spacing:.1em;">Votre code carte</p>
+        <p style="margin:0;font-size:26px;font-weight:700;letter-spacing:.15em;color:#1a0508;font-family:monospace;">${ctx.code}</p>
+        <p style="margin:8px 0 0;font-size:12px;color:#aaa;">Valable jusqu'au ${ctx.validUntilFr}</p>
+      </div>
+
+      <div style="text-align:center;margin:20px 0;">
+        <a href="${ctx.cardUrl}" style="display:inline-block;background:${ctx.themeColor};color:#e8d5a3;padding:13px 28px;border-radius:50px;text-decoration:none;font-weight:700;font-size:14px;">
+          Voir ma carte cadeau
+        </a>
+      </div>
+
+      <p style="font-size:13px;color:#666;">En présentant votre code ou le <strong>QR code</strong> disponible sur la page de votre carte, le marchand partenaire pourra déduire le montant de votre achat.</p>
+    </div>
+
+    <div style="padding:16px 24px;background:#fafafa;border-top:1px solid #eee;text-align:center;font-size:12px;color:#999;">
+      <strong>KADOOR SERVICE</strong> · Abidjan, Côte d'Ivoire<br>
+      Cet email est généré automatiquement.
+    </div>
+  </div>
+</body></html>`;
+  }
+
+  private buildGiftCardOrdererEmail(ctx: {
+    code: string; amount: string; ordererName: string;
+    recipientName?: string | null; cardUrl: string; validUntilFr: string; themeColor: string;
+  }): string {
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;color:#333;">
+  <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.1);">
+    <!-- Header -->
+    <div style="background:${ctx.themeColor};padding:32px 24px;text-align:center;">
+      <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#c9a227;">Kadoor Service</p>
+      <h1 style="margin:0;font-size:24px;color:#e8d5a3;font-family:Georgia,serif;">Carte activée ✓</h1>
+    </div>
+
+    <!-- Contenu -->
+    <div style="padding:28px 24px;">
+      <p>Bonjour <strong>${ctx.ordererName}</strong>,</p>
+      <p>Bonne nouvelle ! Votre carte cadeau Kadoor Service d'une valeur de <strong>${ctx.amount}</strong> a été <strong>validée et activée</strong> par notre équipe.</p>
+
+      ${ctx.recipientName ? `<p>Elle a été envoyée à <strong>${ctx.recipientName}</strong> par email.</p>` : ''}
+
+      <!-- Résumé -->
+      <div style="background:#f8f8f8;border-radius:10px;padding:20px;margin:20px 0;border:1px solid #eee;">
+        <table style="width:100%;border-collapse:collapse;font-size:14px;">
+          <tr><td style="padding:6px 0;color:#888;">Code carte</td><td style="padding:6px 0;font-weight:700;font-family:monospace;letter-spacing:.1em;">${ctx.code}</td></tr>
+          <tr><td style="padding:6px 0;color:#888;">Montant</td><td style="padding:6px 0;font-weight:700;">${ctx.amount}</td></tr>
+          <tr><td style="padding:6px 0;color:#888;">Valable jusqu'au</td><td style="padding:6px 0;">${ctx.validUntilFr}</td></tr>
+          ${ctx.recipientName ? `<tr><td style="padding:6px 0;color:#888;">Destinataire</td><td style="padding:6px 0;">${ctx.recipientName}</td></tr>` : ''}
+        </table>
+      </div>
+
+      <div style="text-align:center;margin:20px 0;">
+        <a href="${ctx.cardUrl}" style="display:inline-block;background:${ctx.themeColor};color:#e8d5a3;padding:13px 28px;border-radius:50px;text-decoration:none;font-weight:700;font-size:14px;">
+          Voir la carte cadeau
+        </a>
+      </div>
+
+      <p style="font-size:13px;color:#666;">Vous pouvez suivre le solde et l'historique d'utilisation de cette carte depuis la page ci-dessus ou depuis votre espace client.</p>
+    </div>
+
+    <div style="padding:16px 24px;background:#fafafa;border-top:1px solid #eee;text-align:center;font-size:12px;color:#999;">
+      <strong>KADOOR SERVICE</strong> · Abidjan, Côte d'Ivoire<br>
+      Cet email est généré automatiquement.
+    </div>
+  </div>
+</body></html>`;
+  }
+
+  /**
    * Envoie un email via OneSignal
    */
   private async sendEmail(

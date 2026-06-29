@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import { CreateGiftCardDto } from './dto/create-gift-card.dto';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class GiftCardsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private emailService: EmailService,
+  ) {}
 
   private generateCode(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -135,11 +139,21 @@ export class GiftCardsService {
   }
 
   async validate(id: string, adminId: string) {
-    await this.findOne(id);
-    return this.prisma.giftCard.update({
+    const card = await this.prisma.giftCard.update({
       where: { id },
       data: { status: 'ACTIVE', validatedAt: new Date(), validatedById: adminId },
+      include: {
+        user: { select: { email: true, firstName: true, lastName: true } },
+      },
     });
+
+    // Envoi des emails en arrière-plan (ne bloque pas la réponse admin)
+    this.emailService.sendGiftCardValidated({
+      ...card,
+      theme: card.theme ?? 'red',
+    }).catch(() => {});
+
+    return card;
   }
 
   async cancel(id: string, reason?: string) {

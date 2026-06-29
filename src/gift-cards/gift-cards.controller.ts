@@ -26,14 +26,14 @@ export class GiftCardsController {
   @UseGuards(JwtAuthGuard)
   @Post()
   @ApiOperation({ summary: 'Précommander une carte cadeau (client)' })
-  create(@Body() dto: CreateGiftCardDto, @Request() req) {
+  create(@Body() dto: CreateGiftCardDto, @Request() req: any) {
     return this.giftCardsService.create(dto, req.user.id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('my')
   @ApiOperation({ summary: 'Mes cartes cadeaux (client connecté)' })
-  getMyCards(@Request() req) {
+  getMyCards(@Request() req: any) {
     return this.giftCardsService.findMyCards(req.user.id);
   }
 
@@ -67,7 +67,7 @@ export class GiftCardsController {
   @Patch(':id/validate')
   @Roles('ADMIN', 'MANAGER')
   @ApiOperation({ summary: 'Valider une carte cadeau' })
-  validate(@Param('id') id: string, @Request() req) {
+  validate(@Param('id') id: string, @Request() req: any) {
     return this.giftCardsService.validate(id, req.user.id);
   }
 
