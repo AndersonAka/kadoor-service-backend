@@ -155,13 +155,12 @@ export class MerchantService {
       data: { giftCardId: card.id, codeHash, expiresAt, cooldownUntil },
     });
 
-    // 6. Déterminer le canal de livraison (priorité : SMS → email destinataire → email acheteur)
-    const recipientPhone = fullCard.recipientPhone;
+    // 6. Canal de livraison : email uniquement (SMS branché ultérieurement)
     const recipientEmail = fullCard.recipientEmail;
     const fallbackEmail = fullCard.user.email;
 
-    const contactType: 'sms' | 'email' = recipientPhone ? 'sms' : 'email';
-    const contact = recipientPhone || recipientEmail || fallbackEmail;
+    const contactType: 'email' = 'email';
+    const contact = recipientEmail || fallbackEmail;
 
     // 7. Envoyer l'OTP (email uniquement pour l'instant — SMS à brancher ultérieurement)
     this.emailService.sendOtpCode({
