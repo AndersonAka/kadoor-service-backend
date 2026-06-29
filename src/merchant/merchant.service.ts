@@ -20,11 +20,24 @@ export class MerchantService {
     const partner = await this.prisma.partner.findUnique({ where: { userId } });
     if (!partner) throw new NotFoundException('Profil partenaire introuvable');
 
-    const [totalTx, totalDeducted, recentTx] = await Promise.all([
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    const [totalTx, totalDeducted, monthAgg, recentTx, last7DaysTx] = await Promise.all([
       this.prisma.giftCardTransaction.count({ where: { partnerId: partner.id } }),
       this.prisma.giftCardTransaction.aggregate({
         where: { partnerId: partner.id },
         _sum: { amountDeducted: true },
+      }),
+      this.prisma.giftCardTransaction.aggregate({
+        where: { partnerId: partner.id, createdAt: { gte: startOfMonth } },
+        _sum: { amountDeducted: true },
+        _count: true,
       }),
       this.prisma.giftCardTransaction.findMany({
         where: { partnerId: partner.id },
@@ -32,11 +45,38 @@ export class MerchantService {
         take: 5,
         include: { giftCard: { select: { code: true, recipientName: true } } },
       }),
+      this.prisma.giftCardTransaction.findMany({
+        where: { partnerId: partner.id, createdAt: { gte: sevenDaysAgo } },
+        select: { amountDeducted: true, createdAt: true },
+      }),
     ]);
+
+    // Breakdown journalier sur 7 jours
+    const dailyStats = Array.from({ length: 7 }, (_, i) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (6 - i));
+      const dayKey = date.toISOString().split('T')[0];
+      const dayTx = last7DaysTx.filter(
+        (tx) => new Date(tx.createdAt).toISOString().startsWith(dayKey),
+      );
+      return {
+        date: dayKey,
+        label: date.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }),
+        count: dayTx.length,
+        total: dayTx.reduce((sum, tx) => sum + tx.amountDeducted, 0),
+      };
+    });
+
+    const totalAmount = totalDeducted._sum.amountDeducted ?? 0;
+    const ticketMoyen = totalTx > 0 ? Math.round(totalAmount / totalTx) : 0;
 
     return {
       totalTransactions: totalTx,
-      totalAmountDeducted: totalDeducted._sum.amountDeducted ?? 0,
+      totalAmountDeducted: totalAmount,
+      ticketMoyen,
+      monthTransactions: monthAgg._count,
+      monthAmountDeducted: monthAgg._sum.amountDeducted ?? 0,
+      dailyStats,
       recentTransactions: recentTx,
     };
   }
