@@ -104,6 +104,36 @@ export class GiftCardsService {
     });
   }
 
+  /** Vue publique d'une carte par son code — pas de JWT requis */
+  async findByCodePublic(code: string) {
+    const card = await this.prisma.giftCard.findUnique({
+      where: { code: code.toUpperCase() },
+      select: {
+        code: true,
+        status: true,
+        initialAmount: true,
+        currentBalance: true,
+        theme: true,
+        recipientName: true,
+        senderMessage: true,
+        validFrom: true,
+        validUntil: true,
+        validatedAt: true,
+        transactions: {
+          orderBy: { createdAt: 'desc' },
+          select: {
+            amountDeducted: true,
+            balanceBefore: true,
+            balanceAfter: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+    if (!card) throw new NotFoundException('Carte cadeau introuvable');
+    return card;
+  }
+
   async validate(id: string, adminId: string) {
     await this.findOne(id);
     return this.prisma.giftCard.update({
