@@ -39,7 +39,7 @@ enum RiskLevel {
 }
 
 enum GiftCardStatus {
-  PENDING
+  PENDING_PAYMENT
   ACTIVE
   USED
   EXPIRED
@@ -557,7 +557,7 @@ model PartnerDocument {
 model GiftCard {
   id     String        @id @default(uuid())
   code   String        @unique
-  status GiftCardStatus @default(PENDING)
+  status GiftCardStatus @default(PENDING_PAYMENT)
 
   initialAmount  Float
   currentBalance Float

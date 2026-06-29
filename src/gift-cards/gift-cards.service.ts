@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { PaystackService } from '../reservations/paystack.service';
+import { ConfigService } from '@nestjs/config';
 import { CreateGiftCardDto } from './dto/create-gift-card.dto';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -9,6 +11,8 @@ export class GiftCardsService {
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
+    private paystackService: PaystackService,
+    private configService: ConfigService,
   ) {}
 
   private generateCode(): string {
@@ -17,7 +21,18 @@ export class GiftCardsService {
     return `KDS-${seg()}-${seg()}`;
   }
 
-  async create(dto: CreateGiftCardDto, userId: string) {
+  private buildCallbackUrl(cardId: string): string {
+    const webAppUrl = this.configService.get<string>('WEB_APP_URL') || 'http://localhost:3000';
+    const locale = this.configService.get<string>('WEB_APP_DEFAULT_LOCALE') || 'fr';
+    return `${webAppUrl}/${locale}/payment/callback?giftCardId=${cardId}`;
+  }
+
+  /** Crée la carte et initialise le paiement Paystack — flux commande */
+  async initiatePayment(dto: CreateGiftCardDto, userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Utilisateur introuvable');
+
+    // Générer un code unique
     let code: string;
     let unique = false;
     do {
@@ -30,7 +45,10 @@ export class GiftCardsService {
       ? new Date(dto.validUntil)
       : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
 
-    return this.prisma.giftCard.create({
+    const paystackReference = `GC-${uuidv4()}`;
+
+    // Créer la carte en PENDING_PAYMENT
+    const card = await this.prisma.giftCard.create({
       data: {
         code,
         initialAmount: dto.initialAmount,
@@ -42,8 +60,111 @@ export class GiftCardsService {
         senderMessage: dto.senderMessage,
         validUntil,
         userId,
-        status: 'PENDING',
+        status: 'PENDING_PAYMENT',
+        paystackReference,
       },
+    });
+
+    const callbackUrl = this.buildCallbackUrl(card.id);
+
+    const paystack = await this.paystackService.initializeTransaction({
+      email: user.email,
+      amount: dto.initialAmount,
+      reference: paystackReference,
+      callback_url: callbackUrl,
+      metadata: {
+        type: 'GIFT_CARD',
+        giftCardId: card.id,
+        code: card.code,
+        recipientName: dto.recipientName,
+      },
+    });
+
+    return {
+      card,
+      authorizationUrl: paystack.authorization_url,
+      reference: paystackReference,
+    };
+  }
+
+  /** Vérifie le paiement Paystack et active la carte */
+  async verifyPayment(cardId: string, reference?: string) {
+    const card = await this.prisma.giftCard.findUnique({
+      where: { id: cardId },
+      include: { user: { select: { email: true, firstName: true, lastName: true } } },
+    });
+    if (!card) throw new NotFoundException('Carte cadeau introuvable');
+
+    if (card.status === 'ACTIVE') {
+      return { card, status: 'success' };
+    }
+    if (card.status === 'CANCELLED') {
+      return { card, status: 'failed' };
+    }
+
+    const ref = reference || card.paystackReference;
+    if (!ref) throw new BadRequestException('Référence Paystack manquante');
+
+    const verification = await this.paystackService.verifyTransaction(ref);
+
+    if (verification.status === 'success') {
+      const activated = await this.prisma.giftCard.update({
+        where: { id: card.id },
+        data: { status: 'ACTIVE', validatedAt: new Date() },
+        include: { user: { select: { email: true, firstName: true, lastName: true } } },
+      });
+
+      this.emailService.sendGiftCardValidated({
+        ...activated,
+        theme: activated.theme ?? 'red',
+      }).catch(() => {});
+
+      return { card: activated, status: 'success' };
+    }
+
+    if (verification.status === 'failed' || verification.status === 'abandoned') {
+      await this.prisma.giftCard.update({
+        where: { id: card.id },
+        data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Paiement échoué' },
+      });
+      return { card, status: 'failed' };
+    }
+
+    return { card, status: 'pending' };
+  }
+
+  /** Appelé depuis le webhook Paystack pour activer une carte */
+  async activateByPaystack(reference: string) {
+    const card = await this.prisma.giftCard.findFirst({
+      where: { paystackReference: reference },
+      include: { user: { select: { email: true, firstName: true, lastName: true } } },
+    });
+    if (!card) return null;
+
+    if (card.status !== 'PENDING_PAYMENT') return card;
+
+    const activated = await this.prisma.giftCard.update({
+      where: { id: card.id },
+      data: { status: 'ACTIVE', validatedAt: new Date() },
+      include: { user: { select: { email: true, firstName: true, lastName: true } } },
+    });
+
+    this.emailService.sendGiftCardValidated({
+      ...activated,
+      theme: activated.theme ?? 'red',
+    }).catch(() => {});
+
+    return activated;
+  }
+
+  /** Annule une carte PENDING_PAYMENT suite à un paiement échoué (webhook) */
+  async cancelByPaystack(reference: string) {
+    const card = await this.prisma.giftCard.findFirst({ where: { paystackReference: reference } });
+    if (!card || card.status !== 'PENDING_PAYMENT') return;
+
+    await this.prisma.giftCard.update({
+      where: { id: card.id },
+      data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Paiement échoué (Paystack)' },
     });
   }
 
@@ -79,6 +200,28 @@ export class GiftCardsService {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
+  /** Statistiques admin cartes cadeaux */
+  async getAdminStats() {
+    const [total, active, used, cancelled, pendingPayment, amountAgg, activeAgg] = await Promise.all([
+      this.prisma.giftCard.count(),
+      this.prisma.giftCard.count({ where: { status: 'ACTIVE' } }),
+      this.prisma.giftCard.count({ where: { status: 'USED' } }),
+      this.prisma.giftCard.count({ where: { status: 'CANCELLED' } }),
+      this.prisma.giftCard.count({ where: { status: 'PENDING_PAYMENT' } }),
+      this.prisma.giftCard.aggregate({ _sum: { initialAmount: true } }),
+      this.prisma.giftCard.aggregate({
+        where: { status: { in: ['ACTIVE', 'USED'] } },
+        _sum: { initialAmount: true, currentBalance: true },
+      }),
+    ]);
+
+    const totalRevenue = amountAgg._sum.initialAmount ?? 0;
+    const activeBalance = activeAgg._sum.currentBalance ?? 0;
+    const totalDeducted = (activeAgg._sum.initialAmount ?? 0) - activeBalance;
+
+    return { total, active, used, cancelled, pendingPayment, totalRevenue, totalDeducted, activeBalance };
+  }
+
   async findOne(id: string) {
     const card = await this.prisma.giftCard.findUnique({
       where: { id },
@@ -97,7 +240,7 @@ export class GiftCardsService {
   /** Mes cartes — vue client */
   async findMyCards(userId: string) {
     return this.prisma.giftCard.findMany({
-      where: { userId },
+      where: { userId, status: { not: 'PENDING_PAYMENT' } },
       orderBy: { createdAt: 'desc' },
       include: {
         transactions: {
@@ -139,26 +282,11 @@ export class GiftCardsService {
     return card;
   }
 
-  async validate(id: string, adminId: string) {
-    const card = await this.prisma.giftCard.update({
-      where: { id },
-      data: { status: 'ACTIVE', validatedAt: new Date(), validatedById: adminId },
-      include: {
-        user: { select: { email: true, firstName: true, lastName: true } },
-      },
-    });
-
-    // Envoi des emails en arrière-plan (ne bloque pas la réponse admin)
-    this.emailService.sendGiftCardValidated({
-      ...card,
-      theme: card.theme ?? 'red',
-    }).catch(() => {});
-
-    return card;
-  }
-
   async cancel(id: string, reason?: string) {
-    await this.findOne(id);
+    const card = await this.findOne(id);
+    if (!['ACTIVE', 'PENDING_PAYMENT'].includes(card.status)) {
+      throw new BadRequestException('Seules les cartes actives ou en attente peuvent être annulées');
+    }
     return this.prisma.giftCard.update({
       where: { id },
       data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason },

@@ -23,11 +23,20 @@ export class GiftCardsController {
     return this.giftCardsService.findByCodePublic(code);
   }
 
+  /** Commande + paiement Paystack — remplace la précommande */
   @UseGuards(JwtAuthGuard)
-  @Post()
-  @ApiOperation({ summary: 'Précommander une carte cadeau (client)' })
-  create(@Body() dto: CreateGiftCardDto, @Request() req: any) {
-    return this.giftCardsService.create(dto, req.user.id);
+  @Post('initiate-payment')
+  @ApiOperation({ summary: 'Commander une carte cadeau et initialiser le paiement Paystack' })
+  initiatePayment(@Body() dto: CreateGiftCardDto, @Request() req: any) {
+    return this.giftCardsService.initiatePayment(dto, req.user.id);
+  }
+
+  /** Vérification paiement après retour Paystack */
+  @UseGuards(JwtAuthGuard)
+  @Post('verify-payment/:id')
+  @ApiOperation({ summary: 'Vérifier le paiement Paystack d\'une carte cadeau' })
+  verifyPayment(@Param('id') id: string, @Query('reference') reference?: string) {
+    return this.giftCardsService.verifyPayment(id, reference);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -35,6 +44,14 @@ export class GiftCardsController {
   @ApiOperation({ summary: 'Mes cartes cadeaux (client connecté)' })
   getMyCards(@Request() req: any) {
     return this.giftCardsService.findMyCards(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Get('admin/stats')
+  @Roles('ADMIN', 'MANAGER')
+  @ApiOperation({ summary: 'Statistiques cartes cadeaux (admin)' })
+  getAdminStats() {
+    return this.giftCardsService.getAdminStats();
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -64,17 +81,9 @@ export class GiftCardsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Patch(':id/validate')
-  @Roles('ADMIN', 'MANAGER')
-  @ApiOperation({ summary: 'Valider une carte cadeau' })
-  validate(@Param('id') id: string, @Request() req: any) {
-    return this.giftCardsService.validate(id, req.user.id);
-  }
-
-  @UseGuards(JwtAuthGuard, RolesGuard)
   @Patch(':id/cancel')
   @Roles('ADMIN', 'MANAGER')
-  @ApiOperation({ summary: 'Annuler une carte cadeau' })
+  @ApiOperation({ summary: 'Annuler une carte cadeau (admin)' })
   cancel(@Param('id') id: string, @Body('reason') reason?: string) {
     return this.giftCardsService.cancel(id, reason);
   }

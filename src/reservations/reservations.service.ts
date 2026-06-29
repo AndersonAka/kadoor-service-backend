@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ConflictException, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { VehicleTypePricing } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -11,6 +11,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PaystackService } from './paystack.service';
 import { SettingsService } from '../settings/settings.service';
 import { PromoCodesService } from '../promo-codes/promo-codes.service';
+import { GiftCardsService } from '../gift-cards/gift-cards.service';
 import { v4 as uuidv4 } from 'uuid';
 
 /** Clés SiteSettings — forfaits kilométriques */
@@ -33,6 +34,8 @@ export class ReservationsService {
     private configService: ConfigService,
     private settingsService: SettingsService,
     private promoCodesService: PromoCodesService,
+    @Inject(forwardRef(() => GiftCardsService))
+    private giftCardsService: GiftCardsService,
   ) {}
 
   /**
@@ -710,6 +713,16 @@ export class ReservationsService {
     if (body.event === 'charge.success' || body.event === 'charge.failed') {
       const reference = body.data?.reference;
       if (!reference) return { status: 'error', message: 'No reference' };
+
+      // Vérifier d'abord si c'est une carte cadeau (référence GC-)
+      if (reference.startsWith('GC-')) {
+        if (body.event === 'charge.success') {
+          await this.giftCardsService.activateByPaystack(reference).catch(() => {});
+        } else {
+          await this.giftCardsService.cancelByPaystack(reference).catch(() => {});
+        }
+        return { status: 'ok' };
+      }
 
       const existing = await this.prisma.booking.findFirst({ where: { paystackReference: reference } });
       if (!existing) return { status: 'ok', message: 'Booking not found' };
