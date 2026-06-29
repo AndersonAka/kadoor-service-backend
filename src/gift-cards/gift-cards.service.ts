@@ -38,6 +38,7 @@ export class GiftCardsService {
         theme: dto.theme,
         recipientName: dto.recipientName,
         recipientEmail: dto.recipientEmail,
+        recipientPhone: dto.recipientPhone,
         senderMessage: dto.senderMessage,
         validUntil,
         userId,

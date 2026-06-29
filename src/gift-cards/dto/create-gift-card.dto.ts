@@ -10,6 +10,7 @@ export class CreateGiftCardDto {
   @ApiPropertyOptional() @IsOptional() @IsString() theme?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() recipientName?: string;
   @ApiPropertyOptional() @IsOptional() @IsEmail() recipientEmail?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() recipientPhone?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() senderMessage?: string;
   @ApiPropertyOptional() @IsOptional() @IsDateString() validUntil?: string;
 }
