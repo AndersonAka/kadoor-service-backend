@@ -8,9 +8,14 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { MerchantService } from './merchant.service';
 
+class RequestOtpDto {
+  @IsString() code: string;
+}
+
 class DeductDto {
   @IsString() code: string;
   @IsNumber() @Min(1) amount: number;
+  @IsString() otpCode: string;
   @IsOptional() @IsString() note?: string;
 }
 
@@ -24,13 +29,13 @@ export class MerchantController {
 
   @Get('profile')
   @ApiOperation({ summary: 'Profil partenaire du marchand connecté' })
-  getProfile(@Request() req) {
+  getProfile(@Request() req: any) {
     return this.merchantService.getMyProfile(req.user.id);
   }
 
   @Get('dashboard')
   @ApiOperation({ summary: 'Statistiques du tableau de bord marchand' })
-  getDashboard(@Request() req) {
+  getDashboard(@Request() req: any) {
     return this.merchantService.getDashboardStats(req.user.id);
   }
 
@@ -40,16 +45,24 @@ export class MerchantController {
     return this.merchantService.lookupGiftCard(code);
   }
 
+  @Post('gift-cards/request-otp')
+  @ApiOperation({ summary: 'Demander un OTP pour sécuriser une transaction' })
+  requestOtp(@Body() dto: RequestOtpDto) {
+    return this.merchantService.requestOtp(dto.code);
+  }
+
   @Post('gift-cards/deduct')
-  @ApiOperation({ summary: 'Déduire un montant d\'une carte cadeau' })
-  deduct(@Body() dto: DeductDto, @Request() req) {
-    return this.merchantService.deductFromGiftCard(req.user.id, dto.code, dto.amount, dto.note);
+  @ApiOperation({ summary: 'Déduire un montant d\'une carte cadeau (OTP requis)' })
+  deduct(@Body() dto: DeductDto, @Request() req: any) {
+    return this.merchantService.deductFromGiftCard(
+      req.user.id, dto.code, dto.amount, dto.otpCode, dto.note,
+    );
   }
 
   @Get('transactions')
   @ApiOperation({ summary: 'Historique des transactions du marchand' })
   getTransactions(
-    @Request() req,
+    @Request() req: any,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {

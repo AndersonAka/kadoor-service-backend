@@ -566,6 +566,7 @@ model GiftCard {
   theme          String?
   recipientName  String?
   recipientEmail String?
+  recipientPhone String?   // Format +225XXXXXXXXXX (numérotation ivoirienne)
   senderMessage  String?
 
   // Validité
@@ -580,6 +581,7 @@ model GiftCard {
   user   User   @relation(fields: [userId], references: [id])
 
   transactions GiftCardTransaction[]
+  otps         GiftCardOtp[]
 
   // Cycle de vie admin
   validatedAt   DateTime?
@@ -589,6 +591,20 @@ model GiftCard {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model GiftCardOtp {
+  id         String    @id @default(uuid())
+  giftCardId String
+  giftCard   GiftCard  @relation(fields: [giftCardId], references: [id])
+
+  codeHash      String    // OTP haché (bcrypt) — jamais stocké en clair
+  expiresAt     DateTime  // now + 10 minutes
+  usedAt        DateTime? // null = non utilisé / invalidé
+  attempts      Int       @default(0) // tentatives incorrectes (max 3)
+  cooldownUntil DateTime? // blocage anti-spam (2 min entre demandes)
+
+  createdAt DateTime @default(now())
 }
 
 model GiftCardTransaction {

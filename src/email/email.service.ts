@@ -193,6 +193,68 @@ export class EmailService {
   }
 
   /**
+   * Envoie le code OTP au détenteur de la carte lors d'une tentative d'encaissement
+   */
+  async sendOtpCode(ctx: {
+    contact: string;
+    contactType: 'email' | 'sms';
+    otpCode: string;
+    cardCode: string;
+    currentBalance: number;
+    expiresAt: Date;
+  }): Promise<void> {
+    if (ctx.contactType === 'sms') {
+      // SMS : brancher ici l'API Orange CI / MTN CI quand disponible
+      this.logger.log(`[SMS-OTP] ${ctx.contact} → ${ctx.otpCode} (SMS non encore branché)`);
+      return;
+    }
+
+    const formatted = ctx.otpCode.replace(/(\d{3})(\d{3})/, '$1 $2');
+    const balance = ctx.currentBalance.toLocaleString('fr-FR') + ' FCFA';
+    const expires = ctx.expiresAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;">
+  <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.1);">
+    <div style="background:#1a0508;padding:24px;text-align:center;">
+      <p style="margin:0 0 2px;font-size:10px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#c9a227;">Kadoor Service</p>
+      <p style="margin:0;font-size:16px;color:#fff;font-weight:600;">Code de sécurité</p>
+    </div>
+    <div style="padding:32px 24px;text-align:center;">
+      <p style="margin:0 0 8px;font-size:13px;color:#666;">Un marchand partenaire souhaite encaisser votre carte</p>
+      <p style="margin:0 0 24px;font-size:12px;color:#999;font-family:monospace;">${ctx.cardCode}</p>
+
+      <div style="background:#f8f8f8;border-radius:12px;padding:20px;margin:0 0 20px;border:2px dashed #e0e0e0;">
+        <p style="margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#999;">Votre code de sécurité</p>
+        <p style="margin:0;font-size:42px;font-weight:900;letter-spacing:.15em;color:#1a0508;font-family:monospace;">${formatted}</p>
+        <p style="margin:8px 0 0;font-size:11px;color:#c9a227;font-weight:600;">⏱ Valable jusqu'à ${expires} · Usage unique</p>
+      </div>
+
+      <p style="margin:0 0 6px;font-size:13px;color:#333;">Solde actuel de votre carte : <strong>${balance}</strong></p>
+      <p style="margin:0 0 24px;font-size:12px;color:#888;">Dictez ce code au marchand uniquement si vous êtes physiquement présent(e) en caisse.</p>
+
+      <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:12px;text-align:left;">
+        <p style="margin:0;font-size:12px;color:#856404;">
+          ⚠️ <strong>Attention :</strong> Si vous ne faites pas d'achat en ce moment, ne communiquez pas ce code.
+          Contactez-nous immédiatement.
+        </p>
+      </div>
+    </div>
+    <div style="padding:14px 24px;background:#fafafa;border-top:1px solid #eee;text-align:center;font-size:11px;color:#aaa;">
+      <strong>KADOOR SERVICE</strong> · Ce message est généré automatiquement
+    </div>
+  </div>
+</body></html>`;
+
+    await this.sendEmail(
+      ctx.contact,
+      `🔐 Code de sécurité Kadoor : ${formatted}`,
+      html,
+      `Votre code : ${formatted} — Valable jusqu'à ${expires}`,
+    );
+  }
+
+  /**
    * Notifie le destinataire de la carte cadeau (email sur la carte) + l'acheteur
    * Appelé lors de la validation admin (PENDING → ACTIVE)
    */
