@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import * as bcrypt from 'bcrypt';
@@ -298,20 +299,48 @@ export class MerchantService {
   }
 
   /** Historique des transactions du marchand */
-  async getTransactionHistory(userId: string, page = 1, limit = 20) {
+  async getTransactionHistory(
+    userId: string,
+    page = 1,
+    limit = 20,
+    filters: { search?: string; startDate?: string; endDate?: string } = {},
+  ) {
     const partner = await this.prisma.partner.findUnique({ where: { userId } });
     if (!partner) throw new NotFoundException('Profil partenaire introuvable');
+
+    const where: Prisma.GiftCardTransactionWhereInput = { partnerId: partner.id };
+
+    const search = filters.search?.trim();
+    if (search) {
+      where.OR = [
+        { receiptRef: { contains: search, mode: 'insensitive' } },
+        { note: { contains: search, mode: 'insensitive' } },
+        { giftCard: { code: { contains: search, mode: 'insensitive' } } },
+        { giftCard: { recipientName: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+
+    if (filters.startDate || filters.endDate) {
+      where.createdAt = {};
+      if (filters.startDate) where.createdAt.gte = new Date(filters.startDate);
+      if (filters.endDate) {
+        // Inclure toute la journée de fin (23:59:59.999) plutôt que minuit pile
+        const end = new Date(filters.endDate);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
 
     const skip = (page - 1) * limit;
     const [data, total] = await Promise.all([
       this.prisma.giftCardTransaction.findMany({
-        where: { partnerId: partner.id },
+        where,
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
         include: { giftCard: { select: { code: true, recipientName: true, initialAmount: true } } },
       }),
-      this.prisma.giftCardTransaction.count({ where: { partnerId: partner.id } }),
+      this.prisma.giftCardTransaction.count({ where }),
     ]);
 
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };

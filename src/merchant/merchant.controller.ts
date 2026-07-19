@@ -65,11 +65,18 @@ export class MerchantController {
     @Request() req: any,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
     // Bornes de sécurité : évite un page/limit invalide (NaN, négatif) ou abusif
     // (ex: ?limit=1000000) qui forcerait une requête DB disproportionnée.
     const parsedPage = Math.max(1, parseInt(page || '1', 10) || 1);
     const parsedLimit = Math.min(100, Math.max(1, parseInt(limit || '20', 10) || 20));
-    return this.merchantService.getTransactionHistory(req.user.id, parsedPage, parsedLimit);
+    return this.merchantService.getTransactionHistory(req.user.id, parsedPage, parsedLimit, {
+      search,
+      startDate,
+      endDate,
+    });
   }
 }
