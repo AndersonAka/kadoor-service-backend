@@ -61,7 +61,7 @@ async function main() {
       isPPE: false,
 
       // Finances
-      fundSources: ['COMMERCIAL_REVENUE', 'BANK_LOAN'],
+      fundSources: ["Revenus d'activité", 'Prêt bancaire'],
       estimatedAnnualRevenue: 50000000,
       estimatedMonthlyTx: 120,
       avgTransactionValue: 35000,
