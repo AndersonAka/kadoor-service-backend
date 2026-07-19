@@ -1,12 +1,20 @@
 import { Controller, Post, Body, UseGuards, Get, Request, UnauthorizedException, Res, Query, Patch, BadRequestException } from '@nestjs/common';
 import type { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { UsersService } from '../users/users.service';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+
+// Limite stricte pour les endpoints exposés au brute force / à l'énumération
+const AUTH_THROTTLE = { default: { limit: 5, ttl: 60000 } };
+
+const AUTH_COOKIE_NAME = 'access_token';
+const AUTH_COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 1 jour, aligné sur signOptions.expiresIn du JwtModule
 
 @ApiTags('auth')
 @Controller('auth')
@@ -15,13 +23,27 @@ export class AuthController {
     private authService: AuthService,
     private usersService: UsersService,
     private configService: ConfigService,
+    private jwtService: JwtService,
   ) {}
 
+  // Le JWT ne transite jamais dans le corps de la réponse JSON : uniquement via un
+  // cookie httpOnly, inaccessible en JavaScript (protection contre le vol de token par XSS).
+  private setAuthCookie(res: Response, token: string) {
+    res.cookie(AUTH_COOKIE_NAME, token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: AUTH_COOKIE_MAX_AGE,
+      path: '/',
+    });
+  }
+
+  @Throttle(AUTH_THROTTLE)
   @Post('login')
   @ApiOperation({ summary: 'Connexion utilisateur' })
   @ApiResponse({ status: 200, description: 'Connexion réussie' })
   @ApiResponse({ status: 401, description: 'Identifiants invalides' })
-  async login(@Body() loginDto: LoginDto) {
+  async login(@Body() loginDto: LoginDto, @Res({ passthrough: true }) res: Response) {
     try {
       console.log(`[AuthController] Login attempt for: ${loginDto.email}`);
       const user = await this.authService.validateUser(loginDto.email, loginDto.password);
@@ -31,8 +53,8 @@ export class AuthController {
       }
       console.log(`[AuthController] Login successful for: ${loginDto.email}`);
       const result = await this.authService.login(user);
-      console.log(`[AuthController] Returning login result for: ${loginDto.email}`, JSON.stringify(result, null, 2));
-      return result;
+      this.setAuthCookie(res, result.access_token);
+      return { user: result.user };
     } catch (error) {
       console.error(`[AuthController] Error in login:`, error);
       if (error instanceof UnauthorizedException) {
@@ -42,6 +64,36 @@ export class AuthController {
     }
   }
 
+  @Post('logout')
+  @ApiOperation({ summary: 'Déconnexion (efface le cookie de session)' })
+  async logout(@Res({ passthrough: true }) res: Response) {
+    res.clearCookie(AUTH_COOKIE_NAME, { path: '/' });
+    return { success: true };
+  }
+
+  @Throttle(AUTH_THROTTLE)
+  @Post('session-from-token')
+  @ApiOperation({ summary: "Échange un JWT (reçu en query string, ex: callback OAuth) contre un cookie de session" })
+  @ApiResponse({ status: 200, description: 'Session établie' })
+  @ApiResponse({ status: 401, description: 'Token invalide ou expiré' })
+  async sessionFromToken(@Body('token') token: string, @Res({ passthrough: true }) res: Response) {
+    if (!token) {
+      throw new UnauthorizedException('Token manquant');
+    }
+    try {
+      const payload = this.jwtService.verify(token);
+      const user = await this.usersService.findOne(payload.sub);
+      if (!user) {
+        throw new UnauthorizedException('Utilisateur introuvable');
+      }
+      this.setAuthCookie(res, token);
+      return { user };
+    } catch {
+      throw new UnauthorizedException('Token invalide ou expiré');
+    }
+  }
+
+  @Throttle(AUTH_THROTTLE)
   @Post('register')
   @ApiOperation({ summary: 'Inscription utilisateur' })
   @ApiResponse({ status: 201, description: 'Inscription réussie' })
@@ -77,8 +129,8 @@ export class AuthController {
       // Rediriger vers le frontend avec le token
       const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
       const redirectUrl = `${frontendUrl}/auth/google/callback?token=${result.access_token}`;
-      
-      console.log('[AuthController] Redirecting to:', redirectUrl);
+
+      console.log('[AuthController] Redirecting to frontend after Google callback (token omitted from logs)');
       return res.redirect(redirectUrl);
     } catch (error) {
       console.error('[AuthController] Google callback error:', error);
@@ -87,11 +139,12 @@ export class AuthController {
     }
   }
 
+  @Throttle(AUTH_THROTTLE)
   @Post('google/token')
   @ApiOperation({ summary: 'Connexion Google avec token ID (pour frontend)' })
   @ApiResponse({ status: 200, description: 'Connexion réussie' })
   @ApiResponse({ status: 401, description: 'Token invalide' })
-  async googleTokenLogin(@Body('credential') credential: string) {
+  async googleTokenLogin(@Body('credential') credential: string, @Res({ passthrough: true }) res: Response) {
     try {
       const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
       console.log('[AuthController] Google token login attempt');
@@ -128,9 +181,11 @@ export class AuthController {
       };
 
       console.log('[AuthController] Google user from token:', googleUser.email);
-      
+
       const user = await this.authService.validateGoogleUser(googleUser);
-      return this.authService.login(user);
+      const result = await this.authService.login(user);
+      this.setAuthCookie(res, result.access_token);
+      return { user: result.user };
     } catch (error) {
       console.error('[AuthController] Google token login error:', error.message);
       console.error('[AuthController] Error details:', error);
@@ -184,6 +239,7 @@ export class AuthController {
 
   // ==================== PASSWORD RESET ====================
 
+  @Throttle(AUTH_THROTTLE)
   @Post('forgot-password')
   @ApiOperation({ summary: 'Demander la réinitialisation du mot de passe' })
   @ApiResponse({ status: 200, description: 'Email de réinitialisation envoyé' })
@@ -194,6 +250,7 @@ export class AuthController {
     return this.authService.forgotPassword(body.email);
   }
 
+  @Throttle(AUTH_THROTTLE)
   @Post('reset-password')
   @ApiOperation({ summary: 'Réinitialiser le mot de passe avec le token' })
   @ApiResponse({ status: 200, description: 'Mot de passe réinitialisé' })
