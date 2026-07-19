@@ -2,6 +2,7 @@
 // avant l'évaluation des modules important JwtStrategy (qui lit process.env.JWT_SECRET
 // au chargement, avant que ConfigModule.forRoot() n'ait pu tourner).
 import 'dotenv/config';
+import { setDefaultResultOrder } from 'dns';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -9,6 +10,12 @@ import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import compression from 'compression';
+
+// Certains hôtes (dont ce serveur de prod) résolvent Neon avec une adresse IPv6 en
+// priorité alors que leur connectivité IPv6 sortante est cassée (ping6 échoue), ce qui
+// fait échouer la connexion Postgres (P1001) même quand l'IPv4 fonctionne très bien.
+// Force Node à préférer l'IPv4, indépendamment de la configuration réseau de l'hôte.
+setDefaultResultOrder('ipv4first');
 
 const isProd = process.env.NODE_ENV === 'production';
 
