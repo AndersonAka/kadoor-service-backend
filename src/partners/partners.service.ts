@@ -95,9 +95,9 @@ export class PartnersService {
   }
 
   async update(id: string, dto: UpdatePartnerDto, adminId: string) {
-    await this.findOne(id);
+    const partner = await this.findOne(id);
 
-    const { beneficiaries, ...rest } = dto;
+    const { beneficiaries, merchantPassword, merchantFirstName, merchantLastName, ...rest } = dto;
 
     const data: any = { ...rest };
     if (beneficiaries !== undefined) {
@@ -108,6 +108,32 @@ export class PartnersService {
     if (dto.status === 'APPROVED') {
       data.validatedAt = new Date();
       data.validatedById = adminId;
+    }
+
+    // Réinitialisation du mot de passe marchand (ou création du compte s'il n'existait pas encore)
+    if (merchantPassword) {
+      const hashed = await bcrypt.hash(merchantPassword, 10);
+      if (partner.userId) {
+        await this.prisma.user.update({
+          where: { id: partner.userId },
+          data: { password: hashed },
+        });
+      } else {
+        const existingUser = await this.prisma.user.findUnique({ where: { email: partner.email } });
+        if (existingUser) throw new ConflictException('Un compte utilisateur avec cet email existe déjà');
+
+        const user = await this.prisma.user.create({
+          data: {
+            email: partner.email,
+            password: hashed,
+            firstName: merchantFirstName || partner.fullName?.split(' ')[0] || partner.legalName || '',
+            lastName: merchantLastName || partner.fullName?.split(' ').slice(1).join(' ') || '',
+            role: 'MERCHANT',
+            provider: 'local',
+          },
+        });
+        data.userId = user.id;
+      }
     }
 
     return this.prisma.partner.update({
