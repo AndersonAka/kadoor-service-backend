@@ -1,11 +1,19 @@
 -- Baseline migration: Synchronize database with schema
 -- This migration includes all changes that were applied via db push
 
--- CreateEnum
-CREATE TYPE IF NOT EXISTS "IncidentType" AS ENUM ('ACCIDENT', 'PANNE', 'SINISTRE', 'VOL', 'DOMMAGE', 'AUTRES');
+-- CreateEnum (Postgres n'a pas de "CREATE TYPE IF NOT EXISTS" natif : on simule via DO/EXCEPTION)
+DO $$ BEGIN
+    CREATE TYPE "IncidentType" AS ENUM ('ACCIDENT', 'PANNE', 'SINISTRE', 'VOL', 'DOMMAGE', 'AUTRES');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- CreateEnum
-CREATE TYPE IF NOT EXISTS "IncidentStatus" AS ENUM ('PENDING', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');
+DO $$ BEGIN
+    CREATE TYPE "IncidentStatus" AS ENUM ('PENDING', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- AlterTable: Add columns to Vehicle
 ALTER TABLE "Vehicle" ADD COLUMN IF NOT EXISTS "make" TEXT;

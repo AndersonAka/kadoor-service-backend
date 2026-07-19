@@ -624,4 +624,10 @@ model GiftCardTransaction {
   receiptRef String?
 
   createdAt DateTime @default(now())
+
+  // Postgres n'indexe pas automatiquement les colonnes de clé étrangère : sans ces index,
+  // les listes de transactions (marchand, carte cadeau) font un scan séquentiel complet
+  // de la table, de plus en plus lent à mesure qu'elle grossit.
+  @@index([partnerId, createdAt])
+  @@index([giftCardId, createdAt])
 }
