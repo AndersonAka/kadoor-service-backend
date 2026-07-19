@@ -1,17 +1,25 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import PDFDocument from 'pdfkit';
 import * as fs from 'fs';
 import * as path from 'path';
 
+const STAFF_ROLES = ['ADMIN', 'MANAGER'];
+
 @Injectable()
 export class DocumentsService {
   constructor(private prisma: PrismaService) {}
 
+  private assertOwnerOrStaff(booking: { userId: string }, requesterId: string, requesterRole: string) {
+    if (booking.userId !== requesterId && !STAFF_ROLES.includes(requesterRole)) {
+      throw new ForbiddenException("Vous n'avez pas accès à ce document");
+    }
+  }
+
   /**
    * Génère une facture PDF pour une réservation
    */
-  async generateInvoice(bookingId: string): Promise<Buffer> {
+  async generateInvoice(bookingId: string, requesterId: string, requesterRole: string): Promise<Buffer> {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
@@ -24,6 +32,7 @@ export class DocumentsService {
     if (!booking) {
       throw new NotFoundException(`Réservation avec l'ID ${bookingId} non trouvée`);
     }
+    this.assertOwnerOrStaff(booking, requesterId, requesterRole);
 
     let vehicleDailyRate = 0;
     if (booking.vehicle) {
@@ -44,7 +53,7 @@ export class DocumentsService {
   /**
    * Génère un contrat PDF pour une réservation
    */
-  async generateContract(bookingId: string): Promise<Buffer> {
+  async generateContract(bookingId: string, requesterId: string, requesterRole: string): Promise<Buffer> {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
@@ -57,6 +66,7 @@ export class DocumentsService {
     if (!booking) {
       throw new NotFoundException(`Réservation avec l'ID ${bookingId} non trouvée`);
     }
+    this.assertOwnerOrStaff(booking, requesterId, requesterRole);
 
     return this.createContractPDF(booking);
   }
@@ -64,7 +74,7 @@ export class DocumentsService {
   /**
    * Génère un reçu PDF pour une réservation
    */
-  async generateReceipt(bookingId: string): Promise<Buffer> {
+  async generateReceipt(bookingId: string, requesterId: string, requesterRole: string): Promise<Buffer> {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
@@ -77,6 +87,7 @@ export class DocumentsService {
     if (!booking) {
       throw new NotFoundException(`Réservation avec l'ID ${bookingId} non trouvée`);
     }
+    this.assertOwnerOrStaff(booking, requesterId, requesterRole);
 
     return this.createReceiptPDF(booking);
   }

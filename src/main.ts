@@ -1,3 +1,7 @@
+// Doit être le tout premier import : garantit que process.env est peuplé
+// avant l'évaluation des modules important JwtStrategy (qui lit process.env.JWT_SECRET
+// au chargement, avant que ConfigModule.forRoot() n'ait pu tourner).
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
