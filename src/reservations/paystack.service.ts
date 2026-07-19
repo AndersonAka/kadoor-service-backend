@@ -18,6 +18,20 @@ export interface PaystackVerifyResult {
   gateway_response: string;
 }
 
+const PAYSTACK_TIMEOUT_MS = 15000;
+
+// Évite qu'un appel Paystack lent/bloqué ne reste jamais résolu, ce qui sous forte
+// charge finirait par accumuler des requêtes en attente et épuiser la mémoire.
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = PAYSTACK_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 @Injectable()
 export class PaystackService {
   private readonly logger = new Logger(PaystackService.name);
@@ -51,7 +65,7 @@ export class PaystackService {
   }): Promise<PaystackInitResult> {
     const amountInSubunit = Math.round(params.amount * 100);
 
-    const response = await fetch(`${this.baseUrl}/transaction/initialize`, {
+    const response = await fetchWithTimeout(`${this.baseUrl}/transaction/initialize`, {
       method: 'POST',
       headers: this.headers,
       body: JSON.stringify({
@@ -74,7 +88,7 @@ export class PaystackService {
   }
 
   async verifyTransaction(reference: string): Promise<PaystackVerifyResult> {
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `${this.baseUrl}/transaction/verify/${encodeURIComponent(reference)}`,
       { headers: this.headers },
     );

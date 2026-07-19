@@ -67,9 +67,13 @@ export class NewsletterService {
   }
 
   async findAll() {
+    // Garde-fou : évite qu'une liste d'abonnés qui grossit à l'infini ne finisse
+    // par ralentir/faire planter cet endpoint admin. Pagination complète à ajouter
+    // si le nombre d'abonnés dépasse durablement ce plafond.
     return this.prisma.newsletter.findMany({
       where: { isActive: true },
       orderBy: { createdAt: 'desc' },
+      take: 1000,
     });
   }
 

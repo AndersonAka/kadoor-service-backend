@@ -104,6 +104,10 @@ export class IncidentsService {
           },
         },
       },
+      // Garde-fou : évite qu'une liste d'incidents qui grossit à l'infini ne finisse
+      // par ralentir/faire planter cet endpoint admin. Pagination complète à ajouter
+      // si le volume dépasse durablement ce plafond.
+      take: 1000,
     });
   }
 

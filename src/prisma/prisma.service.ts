@@ -45,13 +45,24 @@ export class PrismaService
       console.log(`[PrismaService] DATABASE_URL validée. Connexion à: ${PrismaService.maskPassword(databaseUrl)}`);
       
       // Configuration de l'adapter pour Prisma 7
-      const pool = new Pool({ connectionString: databaseUrl });
+      // Pool volontairement modeste : une seule instance PM2 en production actuellement.
+      // À revoir si vous passez en cluster (plusieurs instances) : max × nb d'instances
+      // ne doit jamais dépasser la limite de connexions de votre plan Neon.
+      const pool = new Pool({
+        connectionString: databaseUrl,
+        max: Number(process.env.DATABASE_POOL_MAX) || 10,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000,
+      });
       const adapter = new PrismaPg(pool);
+
+      // Le log 'query' liste CHAQUE requête SQL — utile en dev, coûteux en prod sous charge
+      const isProd = process.env.NODE_ENV === 'production';
 
       // Initialisation du PrismaClient avec l'adapter
       super({
         adapter,
-        log: ['query', 'info', 'warn', 'error'],
+        log: isProd ? ['warn', 'error'] : ['query', 'info', 'warn', 'error'],
       });
 
       // Initialiser le logger après super()

@@ -8,6 +8,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -43,6 +44,15 @@ async function bootstrap() {
 
   // Nécessaire pour lire le cookie httpOnly contenant le JWT (voir jwt.strategy.ts)
   app.use(cookieParser());
+
+  // Compresse les réponses (gzip) — réduit la bande passante et la latence perçue
+  // sous forte charge, notamment sur les listes JSON volumineuses.
+  app.use(compression());
+
+  // Permet à PrismaService.onModuleDestroy() (et autres hooks) de fermer proprement
+  // les connexions DB lors d'un arrêt/redémarrage PM2 (SIGTERM), plutôt que de couper
+  // les requêtes en cours brutalement.
+  app.enableShutdownHooks();
 
   // Configuration CORS — liste blanche explicite en production
   const allowedOrigins = buildAllowedOrigins();

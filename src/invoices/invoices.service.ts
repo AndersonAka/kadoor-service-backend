@@ -194,10 +194,14 @@ export class InvoicesService {
   }
 
   async findAllAdmin(status?: InvoiceStatus) {
+    // Garde-fou : évite qu'une liste de factures qui grossit à l'infini ne finisse
+    // par ralentir/faire planter cet endpoint admin. Pagination complète à ajouter
+    // si le volume dépasse durablement ce plafond.
     return this.prisma.invoice.findMany({
       where: status ? { status } : {},
       include: this.invoiceInclude,
       orderBy: { createdAt: 'desc' },
+      take: 1000,
     });
   }
 
