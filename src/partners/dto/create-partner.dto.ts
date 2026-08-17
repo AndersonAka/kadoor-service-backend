@@ -22,6 +22,7 @@ export enum PartnerCategoryDto {
   AUTO = 'AUTO',
   APARTMENT = 'APARTMENT',
   BOTH = 'BOTH',
+  GIFT_CARD = 'GIFT_CARD',
 }
 
 export class BeneficiaryDto {

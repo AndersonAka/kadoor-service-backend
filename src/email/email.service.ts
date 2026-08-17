@@ -314,6 +314,68 @@ export class EmailService {
     );
   }
 
+  /**
+   * Notifie l'acheteur d'un achat groupé de cartes cadeaux — un seul email récapitulatif
+   * listant tous les codes du lot (l'acheteur est l'unique destinataire, pas d'envoi individuel).
+   */
+  async sendGiftCardBatchValidated(batch: {
+    quantity: number;
+    unitAmount: number;
+    totalAmount: number;
+    buyerType: string;
+    companyName?: string | null;
+    giftCards: { code: string }[];
+    user: { email: string; firstName?: string | null; lastName?: string | null };
+  }): Promise<void> {
+    const formatPrice = (n: number) => n.toLocaleString('fr-FR') + ' FCFA';
+    const ordererName = `${batch.user.firstName || ''} ${batch.user.lastName || ''}`.trim() || 'Client';
+    const themeColor = '#5c0a12';
+
+    const codesRows = batch.giftCards
+      .map(
+        (c) => `<tr>
+          <td style="padding:10px 14px;border-bottom:1px solid #eee;font-family:monospace;font-size:14px;font-weight:700;letter-spacing:1px;">${c.code}</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #eee;text-align:right;font-size:14px;">${formatPrice(batch.unitAmount)}</td>
+        </tr>`,
+      )
+      .join('');
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;color:#333;">
+  <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.1);">
+    <div style="background:${themeColor};padding:32px 24px;text-align:center;">
+      <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#c9a227;">Kadoor Service</p>
+      <h1 style="margin:0;font-size:22px;color:#e8d5a3;font-family:Georgia,serif;">Achat groupé — ${batch.quantity} cartes cadeaux</h1>
+    </div>
+    <div style="padding:24px;">
+      <p style="font-size:15px;">Bonjour ${ordererName},</p>
+      <p style="font-size:15px;">
+        Votre paiement a été confirmé${batch.buyerType === 'COMPANY' && batch.companyName ? ` pour <strong>${batch.companyName}</strong>` : ''}.
+        Vos <strong>${batch.quantity}</strong> cartes cadeaux de ${formatPrice(batch.unitAmount)} chacune
+        (total ${formatPrice(batch.totalAmount)}) sont maintenant actives.
+      </p>
+      <table style="width:100%;border-collapse:collapse;margin:20px 0;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:10px 14px;border-bottom:2px solid ${themeColor};font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#888;">Code</th>
+            <th style="text-align:right;padding:10px 14px;border-bottom:2px solid ${themeColor};font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#888;">Montant</th>
+          </tr>
+        </thead>
+        <tbody>${codesRows}</tbody>
+      </table>
+      <p style="font-size:13px;color:#888;">Retrouvez le détail de vos cartes dans votre espace « Mes cartes cadeaux ».</p>
+    </div>
+  </div>
+</body></html>`;
+
+    await this.sendEmail(
+      batch.user.email,
+      `✅ Votre achat groupé de ${batch.quantity} cartes cadeaux est activé`,
+      html,
+      `${batch.quantity} cartes cadeaux Kadoor de ${formatPrice(batch.unitAmount)} sont maintenant actives`,
+    );
+  }
+
   private buildGiftCardRecipientEmail(ctx: {
     code: string; amount: string; recipientName: string;
     senderMessage?: string | null; cardUrl: string; validUntilFr: string; themeColor: string;

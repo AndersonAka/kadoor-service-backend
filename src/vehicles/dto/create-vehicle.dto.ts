@@ -51,4 +51,9 @@ export class CreateVehicleDto {
   @IsArray()
   @IsString({ each: true })
   features?: string[];
+
+  /** Partenaire loueur propriétaire du véhicule — omis/null = géré directement par Kadoor Service */
+  @IsOptional()
+  @IsString()
+  partnerId?: string;
 }

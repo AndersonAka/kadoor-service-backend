@@ -12,6 +12,14 @@ import * as bcrypt from 'bcrypt';
 export class PartnersService {
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * Détermine le rôle applicatif du compte partenaire selon sa catégorie d'activité :
+   * GIFT_CARD → commerçant cartes cadeaux (/espace-marchand) ; AUTO/APARTMENT/BOTH → loueur (/espace-partenaire).
+   */
+  private roleForCategory(category: string): 'MERCHANT' | 'RENTAL_PARTNER' {
+    return category === 'GIFT_CARD' ? 'MERCHANT' : 'RENTAL_PARTNER';
+  }
+
   async create(dto: CreatePartnerDto, adminId: string) {
     // Vérifier si un partenaire avec cet email existe déjà
     const existing = await this.prisma.partner.findFirst({
@@ -19,7 +27,7 @@ export class PartnersService {
     });
     if (existing) throw new ConflictException('Un partenaire avec cet email existe déjà');
 
-    // Créer le compte utilisateur MERCHANT si un mot de passe est fourni
+    // Créer le compte utilisateur (MERCHANT ou RENTAL_PARTNER selon la catégorie) si un mot de passe est fourni
     let userId: string | undefined;
     if (dto.merchantPassword) {
       const existingUser = await this.prisma.user.findUnique({
@@ -34,7 +42,7 @@ export class PartnersService {
           password: hashed,
           firstName: dto.merchantFirstName || dto.fullName?.split(' ')[0] || dto.legalName || '',
           lastName: dto.merchantLastName || dto.fullName?.split(' ').slice(1).join(' ') || '',
-          role: 'MERCHANT',
+          role: this.roleForCategory(dto.category),
           provider: 'local',
         },
       });
@@ -128,7 +136,7 @@ export class PartnersService {
             password: hashed,
             firstName: merchantFirstName || partner.fullName?.split(' ')[0] || partner.legalName || '',
             lastName: merchantLastName || partner.fullName?.split(' ').slice(1).join(' ') || '',
-            role: 'MERCHANT',
+            role: this.roleForCategory(dto.category ?? partner.category),
             provider: 'local',
           },
         });

@@ -46,4 +46,9 @@ export class CreateApartmentDto {
   @IsOptional()
   @IsBoolean()
   isAvailable?: boolean;
+
+  /** Partenaire loueur propriétaire du logement — omis/null = géré directement par Kadoor Service */
+  @IsOptional()
+  @IsString()
+  partnerId?: string;
 }

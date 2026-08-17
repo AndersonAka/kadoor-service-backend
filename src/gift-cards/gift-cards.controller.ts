@@ -8,6 +8,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { GiftCardsService } from './gift-cards.service';
 import { CreateGiftCardDto } from './dto/create-gift-card.dto';
+import { CreateGiftCardBatchDto } from './dto/create-gift-card-batch.dto';
 
 @ApiTags('gift-cards')
 @ApiBearerAuth()
@@ -44,6 +45,28 @@ export class GiftCardsController {
   @ApiOperation({ summary: 'Mes cartes cadeaux (client connecté)' })
   getMyCards(@Request() req: any) {
     return this.giftCardsService.findMyCards(req.user.id);
+  }
+
+  /** Achat groupé — commande + paiement Paystack pour un lot de N cartes */
+  @UseGuards(JwtAuthGuard)
+  @Post('batch/initiate-payment')
+  @ApiOperation({ summary: 'Commander un lot de cartes cadeaux (achat groupé) et initialiser le paiement Paystack' })
+  initiateBatchPayment(@Body() dto: CreateGiftCardBatchDto, @Request() req: any) {
+    return this.giftCardsService.initiateBatchPayment(dto, req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('batch/verify-payment/:id')
+  @ApiOperation({ summary: 'Vérifier le paiement Paystack d\'un achat groupé de cartes cadeaux' })
+  verifyBatchPayment(@Param('id') id: string, @Query('reference') reference?: string) {
+    return this.giftCardsService.verifyBatchPayment(id, reference);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('batch/my')
+  @ApiOperation({ summary: 'Mes achats groupés de cartes cadeaux (client connecté)' })
+  getMyBatches(@Request() req: any) {
+    return this.giftCardsService.findMyBatches(req.user.id);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

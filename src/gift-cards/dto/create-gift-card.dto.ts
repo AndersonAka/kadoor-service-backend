@@ -1,10 +1,11 @@
-import { IsNumber, IsOptional, IsString, IsEmail, IsDateString, Min } from 'class-validator';
+import { IsNumber, IsOptional, IsString, IsEmail, IsDateString, Min, Max } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateGiftCardDto {
-  @ApiProperty({ description: 'Montant de la carte en FCFA', minimum: 1000 })
+  @ApiProperty({ description: 'Montant de la carte en FCFA', minimum: 5000, maximum: 250000 })
   @IsNumber()
-  @Min(1000)
+  @Min(5000)
+  @Max(250000)
   initialAmount: number;
 
   @ApiPropertyOptional() @IsOptional() @IsString() theme?: string;

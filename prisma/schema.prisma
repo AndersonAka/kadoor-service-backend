@@ -11,6 +11,8 @@ enum Role {
   ADMIN
   MANAGER
   MERCHANT
+  /// Partenaire loueur (véhicules/logements) — espace self-service en lecture seule sur sa flotte et ses réservations
+  RENTAL_PARTNER
 }
 
 enum PartnerType {
@@ -23,6 +25,8 @@ enum PartnerCategory {
   AUTO
   APARTMENT
   BOTH
+  /// Partenaire commerçant chez qui les clients dépensent leurs cartes cadeaux (espace /espace-marchand)
+  GIFT_CARD
 }
 
 enum PartnerStatus {
@@ -98,6 +102,7 @@ model User {
   createdInvoices Invoice[]    @relation("AdminCreatedInvoices")
   partner         Partner?
   giftCards       GiftCard[]
+  giftCardBatches GiftCardBatch[]
 }
 
 /// Tarification partagée par type de véhicule (location + forfaits km journaliers + assurance)
@@ -135,10 +140,16 @@ model Vehicle {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // Partenaire loueur propriétaire du véhicule — null = géré directement par Kadoor Service
+  partnerId String?
+  partner   Partner? @relation(fields: [partnerId], references: [id])
+
   bookings    Booking[]
   reviews     Review[]
   incidents   Incident[]
   favorites   Favorite[]
+
+  @@index([partnerId])
 }
 
 model Apartment {
@@ -159,10 +170,16 @@ model Apartment {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // Partenaire loueur propriétaire du logement — null = géré directement par Kadoor Service
+  partnerId String?
+  partner   Partner? @relation(fields: [partnerId], references: [id])
+
   bookings    Booking[]
   reviews     Review[]
   incidents   Incident[]
   favorites   Favorite[]
+
+  @@index([partnerId])
 }
 
 model Favorite {
@@ -536,6 +553,10 @@ model Partner {
   documents            PartnerDocument[]
   giftCardTransactions GiftCardTransaction[]
 
+  // Biens loués — renseignés côté admin (espace loueur en lecture seule)
+  vehicles   Vehicle[]
+  apartments Apartment[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -580,6 +601,10 @@ model GiftCard {
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
+  // Achat groupé — non nul si la carte provient d'un lot (particulier ou entreprise)
+  batchId String?
+  batch   GiftCardBatch? @relation(fields: [batchId], references: [id])
+
   transactions GiftCardTransaction[]
   otps         GiftCardOtp[]
 
@@ -591,6 +616,43 @@ model GiftCard {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([batchId])
+}
+
+/// Achat groupé de cartes cadeaux (particulier ou entreprise) — paiement unique pour un lot de N cartes,
+/// toutes destinées à l'acheteur uniquement (pas d'envoi direct à des destinataires tiers).
+model GiftCardBatch {
+  id     String         @id @default(uuid())
+  status GiftCardStatus @default(PENDING_PAYMENT)
+
+  buyerType   GiftCardBatchBuyerType
+  companyName String? // Requis en pratique si buyerType = COMPANY (validé côté DTO)
+
+  quantity    Int
+  unitAmount  Float
+  totalAmount Float
+
+  // Paiement
+  paystackReference String? @unique
+
+  // Acheteur — seul destinataire des cartes du lot
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  giftCards GiftCard[]
+
+  validatedAt  DateTime?
+  cancelledAt  DateTime?
+  cancelReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum GiftCardBatchBuyerType {
+  INDIVIDUAL
+  COMPANY
 }
 
 model GiftCardOtp {

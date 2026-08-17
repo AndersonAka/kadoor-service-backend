@@ -714,7 +714,17 @@ export class ReservationsService {
       const reference = body.data?.reference;
       if (!reference) return { status: 'error', message: 'No reference' };
 
-      // Vérifier d'abord si c'est une carte cadeau (référence GC-)
+      // Vérifier d'abord si c'est un achat groupé de cartes cadeaux (référence GCB-)
+      if (reference.startsWith('GCB-')) {
+        if (body.event === 'charge.success') {
+          await this.giftCardsService.activateBatchByPaystack(reference).catch(() => {});
+        } else {
+          await this.giftCardsService.cancelBatchByPaystack(reference).catch(() => {});
+        }
+        return { status: 'ok' };
+      }
+
+      // Vérifier ensuite si c'est une carte cadeau unitaire (référence GC-)
       if (reference.startsWith('GC-')) {
         if (body.event === 'charge.success') {
           await this.giftCardsService.activateByPaystack(reference).catch(() => {});
