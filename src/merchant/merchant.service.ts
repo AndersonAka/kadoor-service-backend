@@ -295,6 +295,31 @@ export class MerchantService {
       }),
     ]);
 
+    // Reçu pro Kadoor — envoyé au destinataire de la carte, ou à l'acheteur à défaut
+    const fullCard = await this.prisma.giftCard.findUnique({
+      where: { id: card.id },
+      select: {
+        recipientEmail: true,
+        recipientName: true,
+        user: { select: { email: true, firstName: true, lastName: true } },
+      },
+    });
+    const recipientContact = fullCard?.recipientEmail || fullCard?.user.email;
+    if (recipientContact) {
+      this.emailService.sendGiftCardTransactionReceipt({
+        to: recipientContact,
+        recipientName: fullCard?.recipientName || fullCard?.user.firstName,
+        cardCode: card.code,
+        partnerName: partner.legalName || partner.fullName || 'Partenaire Kadoor',
+        amountDeducted: amount,
+        balanceBefore,
+        balanceAfter,
+        receiptRef,
+        note,
+        date: new Date(),
+      }).catch(() => {});
+    }
+
     return { transaction, balanceBefore, balanceAfter, receiptRef };
   }
 

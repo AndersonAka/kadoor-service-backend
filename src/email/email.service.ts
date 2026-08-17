@@ -376,6 +376,65 @@ export class EmailService {
     );
   }
 
+  /**
+   * Envoie le reçu professionnel Kadoor après un encaissement marchand sur une carte cadeau,
+   * au destinataire de la carte (ou à l'acheteur à défaut d'email destinataire renseigné).
+   */
+  async sendGiftCardTransactionReceipt(ctx: {
+    to: string;
+    recipientName?: string | null;
+    cardCode: string;
+    partnerName: string;
+    amountDeducted: number;
+    balanceBefore: number;
+    balanceAfter: number;
+    receiptRef: string;
+    note?: string | null;
+    date: Date;
+  }): Promise<void> {
+    const formatPrice = (n: number) => n.toLocaleString('fr-FR') + ' FCFA';
+    const dateFr = ctx.date.toLocaleString('fr-FR', {
+      day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+    const themeColor = '#5c0a12';
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;color:#333;">
+  <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.1);">
+    <div style="background:${themeColor};padding:32px 24px;text-align:center;">
+      <p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#c9a227;">Kadoor Service</p>
+      <h1 style="margin:0;font-size:22px;color:#e8d5a3;font-family:Georgia,serif;">Reçu de paiement</h1>
+      <p style="margin:8px 0 0;font-size:13px;color:rgba(255,255,255,.75);">N° ${ctx.receiptRef}</p>
+    </div>
+    <div style="padding:28px 24px;">
+      <p>Bonjour ${ctx.recipientName ? `<strong>${ctx.recipientName}</strong>` : ''},</p>
+      <p>Voici le reçu de votre achat réglé avec votre carte cadeau Kadoor Service chez <strong>${ctx.partnerName}</strong>.</p>
+
+      <table style="width:100%;border-collapse:collapse;margin:20px 0;font-size:14px;">
+        <tr><td style="padding:8px 0;color:#888;">Date</td><td style="padding:8px 0;text-align:right;font-weight:600;">${dateFr}</td></tr>
+        <tr style="border-top:1px solid #eee;"><td style="padding:8px 0;color:#888;">Marchand</td><td style="padding:8px 0;text-align:right;font-weight:600;">${ctx.partnerName}</td></tr>
+        <tr style="border-top:1px solid #eee;"><td style="padding:8px 0;color:#888;">Carte utilisée</td><td style="padding:8px 0;text-align:right;font-weight:600;font-family:monospace;">${ctx.cardCode}</td></tr>
+        ${ctx.note ? `<tr style="border-top:1px solid #eee;"><td style="padding:8px 0;color:#888;">Note</td><td style="padding:8px 0;text-align:right;">${ctx.note}</td></tr>` : ''}
+        <tr style="border-top:1px solid #eee;"><td style="padding:8px 0;color:#888;">Solde avant</td><td style="padding:8px 0;text-align:right;">${formatPrice(ctx.balanceBefore)}</td></tr>
+        <tr style="border-top:2px solid ${themeColor};"><td style="padding:10px 0;font-weight:700;">Montant payé</td><td style="padding:10px 0;text-align:right;font-weight:700;color:${themeColor};font-size:16px;">-${formatPrice(ctx.amountDeducted)}</td></tr>
+        <tr style="border-top:1px solid #eee;"><td style="padding:8px 0;color:#888;">Solde restant</td><td style="padding:8px 0;text-align:right;font-weight:600;">${formatPrice(ctx.balanceAfter)}</td></tr>
+      </table>
+
+      <p style="font-size:12px;color:#999;text-align:center;margin-top:24px;">
+        Reçu généré automatiquement par Kadoor Service — conservez-le comme justificatif d'achat.
+      </p>
+    </div>
+  </div>
+</body></html>`;
+
+    await this.sendEmail(
+      ctx.to,
+      `🧾 Reçu Kadoor Service — ${ctx.partnerName} (${formatPrice(ctx.amountDeducted)})`,
+      html,
+      `Reçu de votre achat de ${formatPrice(ctx.amountDeducted)} chez ${ctx.partnerName}`,
+    );
+  }
+
   private buildGiftCardRecipientEmail(ctx: {
     code: string; amount: string; recipientName: string;
     senderMessage?: string | null; cardUrl: string; validUntilFr: string; themeColor: string;
