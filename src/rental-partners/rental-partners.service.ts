@@ -1,9 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { VehiclesService } from '../vehicles/vehicles.service';
+import { ApartmentsService } from '../apartments/apartments.service';
+import { CreateVehicleDto } from '../vehicles/dto/create-vehicle.dto';
+import { CreateApartmentDto } from '../apartments/dto/create-apartment.dto';
 
 @Injectable()
 export class RentalPartnersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private vehiclesService: VehiclesService,
+    private apartmentsService: ApartmentsService,
+  ) {}
 
   private async getPartnerOrThrow(userId: string) {
     const partner = await this.prisma.partner.findUnique({ where: { userId } });
@@ -93,6 +101,24 @@ export class RentalPartnersService {
       orderBy: { createdAt: 'desc' },
       include: { _count: { select: { bookings: true } } },
     });
+  }
+
+  /**
+   * Soumet un nouveau véhicule au nom du loueur connecté.
+   * partnerId et status sont forcés côté serveur (PENDING) : le partenaire ne peut
+   * ni s'attribuer un autre partnerId, ni s'auto-valider.
+   */
+  async submitVehicle(userId: string, dto: CreateVehicleDto) {
+    const partner = await this.getPartnerOrThrow(userId);
+    const { partnerId: _ignored, ...rest } = dto;
+    return this.vehiclesService.create(rest, { partnerId: partner.id, status: 'PENDING' });
+  }
+
+  /** Soumet un nouveau logement au nom du loueur connecté (mêmes règles que submitVehicle). */
+  async submitApartment(userId: string, dto: CreateApartmentDto) {
+    const partner = await this.getPartnerOrThrow(userId);
+    const { partnerId: _ignored, ...rest } = dto;
+    return this.apartmentsService.create(rest, { partnerId: partner.id, status: 'PENDING' });
   }
 
   /** Réservations reçues sur les biens du loueur connecté */

@@ -4,7 +4,7 @@ import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 import { QueryVehiclesDto } from './dto/query-vehicles.dto';
 import { UpsertVehicleTypePricingDto } from './dto/upsert-vehicle-type-pricing.dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma, Vehicle, VehicleTypePricing } from '@prisma/client';
+import { ListingStatus, Prisma, Vehicle, VehicleTypePricing } from '@prisma/client';
 
 export type VehicleWithPricing = Vehicle & {
   typePricing: VehicleTypePricing | null;
@@ -20,9 +20,13 @@ export class VehiclesService {
     return Math.round(p.tier1MileageDailyAmount);
   }
 
-  create(createVehicleDto: CreateVehicleDto) {
+  /**
+   * `overrides` permet de forcer partnerId/status côté serveur (ex: soumission par un
+   * partenaire loueur -> status PENDING) sans dépendre de ce que le client envoie dans le DTO.
+   */
+  create(createVehicleDto: CreateVehicleDto, overrides?: { partnerId?: string; status?: ListingStatus }) {
     return this.prisma.vehicle.create({
-      data: createVehicleDto,
+      data: { ...createVehicleDto, ...overrides },
     });
   }
 
@@ -104,11 +108,20 @@ export class VehiclesService {
       page = 1,
       limit = 10,
       includeUnavailable,
+      includeAllStatuses,
     } = query;
 
     const where: Prisma.VehicleWhereInput = {};
     if (!includeUnavailable) {
       where.isAvailable = true;
+    }
+
+    // Vue publique : seuls les véhicules validés (APPROVED) sont visibles.
+    // Un partenaire loueur soumet un véhicule en PENDING, invisible tant qu'un admin ne l'a pas validé.
+    if (!includeAllStatuses) {
+      where.status = 'APPROVED';
+    } else if (query.status) {
+      where.status = query.status;
     }
 
     if (location) {

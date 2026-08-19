@@ -1,5 +1,6 @@
-import { IsOptional, IsString, IsNumber, IsEnum, Min, Max, IsDateString } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsString, IsNumber, IsEnum, Min, Max, IsDateString, IsBoolean } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
+import { ListingStatus } from '@prisma/client';
 
 export enum ApartmentType {
   TYPE_1 = 'TYPE_1',
@@ -67,4 +68,21 @@ export class QueryApartmentsDto {
   @Min(1)
   @Max(100)
   limit?: number = 10;
+
+  /** Admin : inclure les appartements indisponibles */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  includeUnavailable?: boolean;
+
+  /** Admin : filtrer par statut de modération (PENDING/APPROVED/REJECTED) */
+  @IsOptional()
+  @IsEnum(ListingStatus)
+  status?: ListingStatus;
+
+  /** Admin : voir tous les statuts (par défaut, seuls les appartements APPROVED sont publics) */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  includeAllStatuses?: boolean;
 }

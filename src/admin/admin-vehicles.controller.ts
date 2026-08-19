@@ -22,7 +22,7 @@ export class AdminVehiclesController {
   // @Roles('ADMIN', 'MANAGER')
   // @ApiBearerAuth()
   findAll(@Query() query: AdminQueryDto) {
-    return this.vehiclesService.findAll({ ...query, includeUnavailable: true } as any);
+    return this.vehiclesService.findAll({ ...query, includeUnavailable: true, includeAllStatuses: true } as any);
   }
 
   @Get('type-pricing')

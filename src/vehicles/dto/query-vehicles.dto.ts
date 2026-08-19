@@ -1,5 +1,6 @@
-import { IsOptional, IsString, IsNumber, Min, Max, IsBoolean, IsDateString } from 'class-validator';
+import { IsOptional, IsString, IsNumber, Min, Max, IsBoolean, IsDateString, IsEnum } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
+import { ListingStatus } from '@prisma/client';
 
 export class QueryVehiclesDto {
   @IsOptional()
@@ -65,4 +66,15 @@ export class QueryVehiclesDto {
   @Transform(({ value }) => value === true || value === 'true' || value === '1')
   @IsBoolean()
   includeUnavailable?: boolean;
+
+  /** Admin : filtrer par statut de modération (PENDING/APPROVED/REJECTED) */
+  @IsOptional()
+  @IsEnum(ListingStatus)
+  status?: ListingStatus;
+
+  /** Admin : voir tous les statuts (par défaut, seuls les véhicules APPROVED sont publics) */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  includeAllStatuses?: boolean;
 }

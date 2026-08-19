@@ -36,6 +36,15 @@ enum PartnerStatus {
   SUSPENDED
 }
 
+enum ListingStatus {
+  /// Soumis par un partenaire loueur, en attente de validation admin — invisible du public
+  PENDING
+  /// Validé par un admin (ou créé directement par Kadoor Service) — visible du public
+  APPROVED
+  /// Refusé par un admin — invisible du public, le partenaire voit rejectionReason
+  REJECTED
+}
+
 enum RiskLevel {
   LOW
   MEDIUM
@@ -140,6 +149,11 @@ model Vehicle {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  // Modération : soumission par un partenaire loueur -> PENDING jusqu'à validation admin.
+  // Les biens créés directement par Kadoor Service (partnerId null) restent APPROVED par défaut.
+  status          ListingStatus @default(APPROVED)
+  rejectionReason String?
+
   // Partenaire loueur propriétaire du véhicule — null = géré directement par Kadoor Service
   partnerId String?
   partner   Partner? @relation(fields: [partnerId], references: [id])
@@ -150,6 +164,7 @@ model Vehicle {
   favorites   Favorite[]
 
   @@index([partnerId])
+  @@index([status])
 }
 
 model Apartment {
@@ -170,6 +185,11 @@ model Apartment {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  // Modération : soumission par un partenaire loueur -> PENDING jusqu'à validation admin.
+  // Les biens créés directement par Kadoor Service (partnerId null) restent APPROVED par défaut.
+  status          ListingStatus @default(APPROVED)
+  rejectionReason String?
+
   // Partenaire loueur propriétaire du logement — null = géré directement par Kadoor Service
   partnerId String?
   partner   Partner? @relation(fields: [partnerId], references: [id])
@@ -180,6 +200,7 @@ model Apartment {
   favorites   Favorite[]
 
   @@index([partnerId])
+  @@index([status])
 }
 
 model Favorite {

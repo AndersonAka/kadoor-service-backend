@@ -3,15 +3,19 @@ import { CreateApartmentDto } from './dto/create-apartment.dto';
 import { UpdateApartmentDto } from './dto/update-apartment.dto';
 import { QueryApartmentsDto } from './dto/query-apartments.dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { ListingStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class ApartmentsService {
   constructor(private prisma: PrismaService) {}
 
-  create(createApartmentDto: CreateApartmentDto) {
+  /**
+   * `overrides` permet de forcer partnerId/status côté serveur (ex: soumission par un
+   * partenaire loueur -> status PENDING) sans dépendre de ce que le client envoie dans le DTO.
+   */
+  create(createApartmentDto: CreateApartmentDto, overrides?: { partnerId?: string; status?: ListingStatus }) {
     return this.prisma.apartment.create({
-      data: createApartmentDto,
+      data: { ...createApartmentDto, ...overrides },
     });
   }
 
@@ -28,11 +32,22 @@ export class ApartmentsService {
       guests,
       page = 1,
       limit = 10,
+      includeUnavailable,
+      includeAllStatuses,
     } = query;
 
-    const where: Prisma.ApartmentWhereInput = {
-      isAvailable: true,
-    };
+    const where: Prisma.ApartmentWhereInput = {};
+    if (!includeUnavailable) {
+      where.isAvailable = true;
+    }
+
+    // Vue publique : seuls les logements validés (APPROVED) sont visibles.
+    // Un partenaire loueur soumet un logement en PENDING, invisible tant qu'un admin ne l'a pas validé.
+    if (!includeAllStatuses) {
+      where.status = 'APPROVED';
+    } else if (query.status) {
+      where.status = query.status;
+    }
 
     // Filtre par type
     if (type) {

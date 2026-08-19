@@ -21,8 +21,8 @@ export class AdminApartmentsController {
   // @Roles('ADMIN', 'MANAGER')
   // @ApiBearerAuth()
   findAll(@Query() query: AdminQueryDto) {
-    // Pour l'admin, on peut retourner tous les appartements (même non disponibles)
-    return this.apartmentsService.findAll(query as any);
+    // Pour l'admin, on peut retourner tous les appartements (même non disponibles, tous statuts)
+    return this.apartmentsService.findAll({ ...query, includeUnavailable: true, includeAllStatuses: true } as any);
   }
 
   @Get(':id')
