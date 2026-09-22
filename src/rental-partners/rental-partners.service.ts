@@ -1,9 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { VehiclesService } from '../vehicles/vehicles.service';
 import { ApartmentsService } from '../apartments/apartments.service';
 import { CreateVehicleDto } from '../vehicles/dto/create-vehicle.dto';
+import { UpdateVehicleDto } from '../vehicles/dto/update-vehicle.dto';
 import { CreateApartmentDto } from '../apartments/dto/create-apartment.dto';
+import { UpdateApartmentDto } from '../apartments/dto/update-apartment.dto';
+import { ListingKind, ListingModerationService } from '../listings/listing-moderation.service';
 
 @Injectable()
 export class RentalPartnersService {
@@ -11,6 +14,7 @@ export class RentalPartnersService {
     private prisma: PrismaService,
     private vehiclesService: VehiclesService,
     private apartmentsService: ApartmentsService,
+    private moderation: ListingModerationService,
   ) {}
 
   private async getPartnerOrThrow(userId: string) {
@@ -103,6 +107,22 @@ export class RentalPartnersService {
     });
   }
 
+  private partnerName(partner: { legalName: string | null; fullName: string | null; email: string }) {
+    return partner.legalName || partner.fullName || partner.email;
+  }
+
+  /** Un partenaire ne soumet que les biens correspondant à son activité (AUTO / APARTMENT / BOTH). */
+  private assertCategory(partner: { category: string }, kind: ListingKind) {
+    const expected = kind === 'vehicle' ? 'AUTO' : 'APARTMENT';
+    if (partner.category !== 'BOTH' && partner.category !== expected) {
+      throw new ForbiddenException(
+        kind === 'vehicle'
+          ? "Votre compte n'est pas habilité à proposer des véhicules."
+          : "Votre compte n'est pas habilité à proposer des logements.",
+      );
+    }
+  }
+
   /**
    * Soumet un nouveau véhicule au nom du loueur connecté.
    * partnerId et status sont forcés côté serveur (PENDING) : le partenaire ne peut
@@ -110,15 +130,104 @@ export class RentalPartnersService {
    */
   async submitVehicle(userId: string, dto: CreateVehicleDto) {
     const partner = await this.getPartnerOrThrow(userId);
+    this.assertCategory(partner, 'vehicle');
     const { partnerId: _ignored, ...rest } = dto;
-    return this.vehiclesService.create(rest, { partnerId: partner.id, status: 'PENDING' });
+    const vehicle = await this.vehiclesService.create(rest, { partnerId: partner.id, status: 'PENDING' });
+    await this.moderation.notifyAdminsSubmission('vehicle', vehicle.title, this.partnerName(partner));
+    return vehicle;
   }
 
   /** Soumet un nouveau logement au nom du loueur connecté (mêmes règles que submitVehicle). */
   async submitApartment(userId: string, dto: CreateApartmentDto) {
     const partner = await this.getPartnerOrThrow(userId);
+    this.assertCategory(partner, 'apartment');
     const { partnerId: _ignored, ...rest } = dto;
-    return this.apartmentsService.create(rest, { partnerId: partner.id, status: 'PENDING' });
+    const apartment = await this.apartmentsService.create(rest, { partnerId: partner.id, status: 'PENDING' });
+    await this.moderation.notifyAdminsSubmission('apartment', apartment.title, this.partnerName(partner));
+    return apartment;
+  }
+
+  /**
+   * Modification d'un bien par son propriétaire. Toute modification du contenu renvoie le bien
+   * en validation (PENDING, retiré du public) ; seul le basculement « disponible / indisponible »
+   * est appliqué directement, pour que le partenaire puisse gérer ses indisponibilités.
+   */
+  async updateMyVehicle(userId: string, id: string, dto: UpdateVehicleDto) {
+    const partner = await this.getPartnerOrThrow(userId);
+    const current = await this.prisma.vehicle.findFirst({ where: { id, partnerId: partner.id } });
+    if (!current) throw new NotFoundException('Véhicule introuvable');
+
+    const data = this.partnerEditableData(dto);
+    const needsReview = this.needsReview(data);
+    const updated = await this.prisma.vehicle.update({
+      where: { id },
+      data: needsReview ? { ...data, status: 'PENDING', rejectionReason: null } : data,
+    });
+    if (needsReview) {
+      await this.moderation.notifyAdminsSubmission('vehicle', updated.title, this.partnerName(partner), true);
+    }
+    return updated;
+  }
+
+  async updateMyApartment(userId: string, id: string, dto: UpdateApartmentDto) {
+    const partner = await this.getPartnerOrThrow(userId);
+    const current = await this.prisma.apartment.findFirst({ where: { id, partnerId: partner.id } });
+    if (!current) throw new NotFoundException('Logement introuvable');
+
+    const data = this.partnerEditableData(dto);
+    const needsReview = this.needsReview(data);
+    const updated = await this.prisma.apartment.update({
+      where: { id },
+      data: needsReview ? { ...data, status: 'PENDING', rejectionReason: null } : data,
+    });
+    if (needsReview) {
+      await this.moderation.notifyAdminsSubmission('apartment', updated.title, this.partnerName(partner), true);
+    }
+    return updated;
+  }
+
+  /** Retrait d'un bien jamais publié (en attente ou refusé) et sans réservation. Un bien en ligne passe par l'admin. */
+  async removeMyVehicle(userId: string, id: string) {
+    const partner = await this.getPartnerOrThrow(userId);
+    const current = await this.prisma.vehicle.findFirst({
+      where: { id, partnerId: partner.id },
+      include: { _count: { select: { bookings: true } } },
+    });
+    if (!current) throw new NotFoundException('Véhicule introuvable');
+    this.assertWithdrawable(current.status, current._count.bookings);
+    await this.prisma.vehicle.delete({ where: { id } });
+    return { id };
+  }
+
+  async removeMyApartment(userId: string, id: string) {
+    const partner = await this.getPartnerOrThrow(userId);
+    const current = await this.prisma.apartment.findFirst({
+      where: { id, partnerId: partner.id },
+      include: { _count: { select: { bookings: true } } },
+    });
+    if (!current) throw new NotFoundException('Logement introuvable');
+    this.assertWithdrawable(current.status, current._count.bookings);
+    await this.prisma.apartment.delete({ where: { id } });
+    return { id };
+  }
+
+  /** Le partenaire ne choisit ni le statut de validation, ni le motif, ni le propriétaire. */
+  private partnerEditableData<T extends { status?: unknown; rejectionReason?: unknown; partnerId?: unknown }>(dto: T) {
+    const { status: _s, rejectionReason: _r, partnerId: _p, ...data } = dto;
+    return data;
+  }
+
+  private needsReview(data: object) {
+    return Object.keys(data).some((key) => key !== 'isAvailable');
+  }
+
+  private assertWithdrawable(status: string, bookings: number) {
+    if (status === 'APPROVED') {
+      throw new BadRequestException('Ce bien est en ligne : contactez Kadoor Service pour le retirer.');
+    }
+    if (bookings > 0) {
+      throw new BadRequestException('Ce bien a déjà des réservations et ne peut pas être supprimé.');
+    }
   }
 
   /** Réservations reçues sur les biens du loueur connecté */

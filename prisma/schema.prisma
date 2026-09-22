@@ -97,6 +97,8 @@ model User {
   avatar              String?   // URL de l'avatar (Google profile picture)
   provider            String?   @default("local") // "local" ou "google"
   isActive            Boolean   @default(true) // Pour la désactivation de compte (soft delete)
+  /// Vrai tant que le compte utilise un mot de passe choisi par un admin (création/réinitialisation partenaire)
+  mustChangePassword  Boolean   @default(false)
   resetPasswordToken  String?   // Token pour réinitialisation du mot de passe
   resetPasswordExpires DateTime? // Expiration du token
   createdAt           DateTime  @default(now())
@@ -496,17 +498,20 @@ model Partner {
   idExpiry     DateTime?
   nationality  String?
 
-  // §1B — Personne morale
+  // §1B — Entreprise / auto-entrepreneur
   legalName            String?
-  registrationNumber   String?
-  registrationDate     DateTime?
-  legalForm            String?
+  registrationNumber   String?   // N° Registre du commerce (RCCM)
+  registrationDate     DateTime? // Date d'établissement
+  taxNumber            String?   // N° Compte contribuable (NCC)
+  legalForm            String?   // Plus saisi depuis le 21/09/2026 (conservé pour l'historique)
   incorporationCountry String?
   businessSector       String?
 
   // §1C — Coordonnées
-  address  String?
-  phone    String?
+  address   String?
+  latitude  Float?
+  longitude Float?
+  phone     String?
   phone2   String?
   email    String
   website  String?
@@ -541,8 +546,11 @@ model Partner {
   // §5 — Section appartement
   unitCount            Int?
   housingTypes         String[]
+  housingTypeOther     String?  // Précision quand "Autres" est coché
   mainCities           String?
-  avgMonthlyRent       Float?
+  avgMonthlyRent       Float?   // Remplacé par la fourchette min/max (conservé pour l'historique)
+  monthlyRentMin       Float?
+  monthlyRentMax       Float?
   realEstateCompliance String[]
   includedServices     String[]
 

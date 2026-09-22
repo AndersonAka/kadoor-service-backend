@@ -1,12 +1,17 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminQueryDto } from './dto/admin-query.dto';
-// import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-// import { RolesGuard } from '../auth/roles.guard';
-// import { Roles } from '../auth/roles.decorator';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 
 @ApiTags('admin')
+// Réservé au back-office : sans ces gardes, n'importe quel visiteur pouvait lire les clients
+// ou valider lui-même un bien (PATCH status=APPROVED).
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('ADMIN', 'MANAGER')
 @Controller('admin/clients')
 export class AdminClientsController {
   constructor(private prisma: PrismaService) {}
@@ -14,9 +19,6 @@ export class AdminClientsController {
   @Get()
   @ApiOperation({ summary: 'Récupérer la liste des clients' })
   @ApiResponse({ status: 200, description: 'Liste des clients récupérée avec succès' })
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('ADMIN', 'MANAGER')
-  // @ApiBearerAuth()
   async findAll(@Query() query: AdminQueryDto) {
     const { page = 1, limit = 10, search, sortBy = 'createdAt', sortOrder = 'desc' } = query;
 

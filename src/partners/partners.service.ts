@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePartnerDto } from './dto/create-partner.dto';
@@ -20,44 +21,62 @@ export class PartnersService {
     return category === 'GIFT_CARD' ? 'MERCHANT' : 'RENTAL_PARTNER';
   }
 
+  private assertRentRange(min?: number | null, max?: number | null) {
+    if (min != null && max != null && min > max) {
+      throw new BadRequestException('Le loyer minimum doit être inférieur ou égal au loyer maximum.');
+    }
+  }
+
+  /** Le formulaire envoie des dates "AAAA-MM-JJ" que Prisma refuse pour un champ DateTime. */
+  private normalizeDates(data: Record<string, any>) {
+    for (const key of ['birthDate', 'idExpiry', 'registrationDate', 'nextReviewAt']) {
+      if (typeof data[key] === 'string') data[key] = new Date(data[key]);
+    }
+    return data;
+  }
+
   async create(dto: CreatePartnerDto, adminId: string) {
+    this.assertRentRange(dto.monthlyRentMin, dto.monthlyRentMax);
+
     // Vérifier si un partenaire avec cet email existe déjà
     const existing = await this.prisma.partner.findFirst({
       where: { email: dto.email },
     });
     if (existing) throw new ConflictException('Un partenaire avec cet email existe déjà');
 
-    // Créer le compte utilisateur (MERCHANT ou RENTAL_PARTNER selon la catégorie) si un mot de passe est fourni
-    let userId: string | undefined;
-    if (dto.merchantPassword) {
-      const existingUser = await this.prisma.user.findUnique({
-        where: { email: dto.email },
-      });
-      if (existingUser) throw new ConflictException('Un compte utilisateur avec cet email existe déjà');
-
-      const hashed = await bcrypt.hash(dto.merchantPassword, 10);
-      const user = await this.prisma.user.create({
-        data: {
-          email: dto.email,
-          password: hashed,
-          firstName: dto.merchantFirstName || dto.fullName?.split(' ')[0] || dto.legalName || '',
-          lastName: dto.merchantLastName || dto.fullName?.split(' ').slice(1).join(' ') || '',
-          role: this.roleForCategory(dto.category),
-          provider: 'local',
-        },
-      });
-      userId = user.id;
-    }
-
     const { merchantPassword, merchantFirstName, merchantLastName, beneficiaries, ...rest } = dto;
+    const hashed = merchantPassword ? await bcrypt.hash(merchantPassword, 10) : null;
 
-    return this.prisma.partner.create({
-      data: {
-        ...rest,
-        beneficiaries: beneficiaries ? JSON.parse(JSON.stringify(beneficiaries)) : undefined,
-        userId,
-      },
-      include: { user: { select: { id: true, email: true, role: true } }, documents: true },
+    // Compte + fiche dans une transaction : si la fiche échoue, aucun compte orphelin ne reste en base.
+    return this.prisma.$transaction(async (tx) => {
+      // Compte utilisateur (MERCHANT ou RENTAL_PARTNER selon la catégorie) si un mot de passe est fourni
+      let userId: string | undefined;
+      if (hashed) {
+        const existingUser = await tx.user.findUnique({ where: { email: dto.email } });
+        if (existingUser) throw new ConflictException('Un compte utilisateur avec cet email existe déjà');
+
+        const user = await tx.user.create({
+          data: {
+            email: dto.email,
+            password: hashed,
+            firstName: merchantFirstName || dto.fullName?.split(' ')[0] || dto.legalName || '',
+            lastName: merchantLastName || dto.fullName?.split(' ').slice(1).join(' ') || '',
+            role: this.roleForCategory(dto.category),
+            provider: 'local',
+            mustChangePassword: true,
+          },
+        });
+        userId = user.id;
+      }
+
+      return tx.partner.create({
+        data: this.normalizeDates({
+          ...rest,
+          beneficiaries: beneficiaries ? JSON.parse(JSON.stringify(beneficiaries)) : undefined,
+          userId,
+        }) as any,
+        include: { user: { select: { id: true, email: true, role: true } }, documents: true },
+      });
     });
   }
 
@@ -104,10 +123,14 @@ export class PartnersService {
 
   async update(id: string, dto: UpdatePartnerDto, adminId: string) {
     const partner = await this.findOne(id);
+    this.assertRentRange(
+      dto.monthlyRentMin !== undefined ? dto.monthlyRentMin : partner.monthlyRentMin,
+      dto.monthlyRentMax !== undefined ? dto.monthlyRentMax : partner.monthlyRentMax,
+    );
 
     const { beneficiaries, merchantPassword, merchantFirstName, merchantLastName, ...rest } = dto;
 
-    const data: any = { ...rest };
+    const data: any = this.normalizeDates({ ...rest });
     if (beneficiaries !== undefined) {
       data.beneficiaries = JSON.parse(JSON.stringify(beneficiaries));
     }
@@ -118,36 +141,40 @@ export class PartnersService {
       data.validatedById = adminId;
     }
 
-    // Réinitialisation du mot de passe marchand (ou création du compte s'il n'existait pas encore)
-    if (merchantPassword) {
-      const hashed = await bcrypt.hash(merchantPassword, 10);
-      if (partner.userId) {
-        await this.prisma.user.update({
-          where: { id: partner.userId },
-          data: { password: hashed },
-        });
-      } else {
-        const existingUser = await this.prisma.user.findUnique({ where: { email: partner.email } });
-        if (existingUser) throw new ConflictException('Un compte utilisateur avec cet email existe déjà');
+    const hashed = merchantPassword ? await bcrypt.hash(merchantPassword, 10) : null;
 
-        const user = await this.prisma.user.create({
-          data: {
-            email: partner.email,
-            password: hashed,
-            firstName: merchantFirstName || partner.fullName?.split(' ')[0] || partner.legalName || '',
-            lastName: merchantLastName || partner.fullName?.split(' ').slice(1).join(' ') || '',
-            role: this.roleForCategory(dto.category ?? partner.category),
-            provider: 'local',
-          },
-        });
-        data.userId = user.id;
+    return this.prisma.$transaction(async (tx) => {
+      // Réinitialisation du mot de passe (ou création du compte s'il n'existait pas encore)
+      if (hashed) {
+        if (partner.userId) {
+          await tx.user.update({
+            where: { id: partner.userId },
+            data: { password: hashed, mustChangePassword: true },
+          });
+        } else {
+          const existingUser = await tx.user.findUnique({ where: { email: partner.email } });
+          if (existingUser) throw new ConflictException('Un compte utilisateur avec cet email existe déjà');
+
+          const user = await tx.user.create({
+            data: {
+              email: partner.email,
+              password: hashed,
+              firstName: merchantFirstName || partner.fullName?.split(' ')[0] || partner.legalName || '',
+              lastName: merchantLastName || partner.fullName?.split(' ').slice(1).join(' ') || '',
+              role: this.roleForCategory(dto.category ?? partner.category),
+              provider: 'local',
+              mustChangePassword: true,
+            },
+          });
+          data.userId = user.id;
+        }
       }
-    }
 
-    return this.prisma.partner.update({
-      where: { id },
-      data,
-      include: { user: { select: { id: true, email: true, role: true } }, documents: true },
+      return tx.partner.update({
+        where: { id },
+        data,
+        include: { user: { select: { id: true, email: true, role: true } }, documents: true },
+      });
     });
   }
 

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Patch, Param, Delete, Query, UseInterceptors, UploadedFiles } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Patch, Param, Delete, Query, UseInterceptors, UploadedFiles, UseGuards } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiConsumes, ApiBearerAuth } from '@nestjs/swagger';
 import { VehiclesService } from '../vehicles/vehicles.service';
@@ -6,11 +6,16 @@ import { CreateVehicleDto } from '../vehicles/dto/create-vehicle.dto';
 import { UpdateVehicleDto } from '../vehicles/dto/update-vehicle.dto';
 import { UpsertVehicleTypePricingDto } from '../vehicles/dto/upsert-vehicle-type-pricing.dto';
 import { AdminQueryDto } from './dto/admin-query.dto';
-// import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-// import { RolesGuard } from '../auth/roles.guard';
-// import { Roles } from '../auth/roles.decorator';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 
 @ApiTags('admin')
+// Réservé au back-office : sans ces gardes, n'importe quel visiteur pouvait lire les clients
+// ou valider lui-même un bien (PATCH status=APPROVED).
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('ADMIN', 'MANAGER')
 @Controller('admin/vehicles')
 export class AdminVehiclesController {
   constructor(private readonly vehiclesService: VehiclesService) {}
@@ -18,9 +23,6 @@ export class AdminVehiclesController {
   @Get()
   @ApiOperation({ summary: 'Récupérer la liste des véhicules (admin)' })
   @ApiResponse({ status: 200, description: 'Liste des véhicules récupérée avec succès' })
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('ADMIN', 'MANAGER')
-  // @ApiBearerAuth()
   findAll(@Query() query: AdminQueryDto) {
     return this.vehiclesService.findAll({ ...query, includeUnavailable: true, includeAllStatuses: true } as any);
   }
@@ -64,9 +66,6 @@ export class AdminVehiclesController {
   @Post()
   @ApiOperation({ summary: 'Créer un nouveau véhicule' })
   @ApiResponse({ status: 201, description: 'Véhicule créé avec succès' })
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('ADMIN', 'MANAGER')
-  // @ApiBearerAuth()
   create(@Body() createVehicleDto: CreateVehicleDto) {
     return this.vehiclesService.create(createVehicleDto);
   }
@@ -75,9 +74,6 @@ export class AdminVehiclesController {
   @ApiOperation({ summary: 'Modifier un véhicule' })
   @ApiParam({ name: 'id', description: 'ID du véhicule' })
   @ApiResponse({ status: 200, description: 'Véhicule modifié avec succès' })
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('ADMIN', 'MANAGER')
-  // @ApiBearerAuth()
   update(@Param('id') id: string, @Body() updateVehicleDto: UpdateVehicleDto) {
     return this.vehiclesService.update(id, updateVehicleDto);
   }
@@ -86,9 +82,7 @@ export class AdminVehiclesController {
   @ApiOperation({ summary: 'Supprimer un véhicule' })
   @ApiParam({ name: 'id', description: 'ID du véhicule' })
   @ApiResponse({ status: 200, description: 'Véhicule supprimé avec succès' })
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('ADMIN')
-  // @ApiBearerAuth()
+  @Roles('ADMIN')
   remove(@Param('id') id: string) {
     return this.vehiclesService.remove(id);
   }
@@ -98,9 +92,6 @@ export class AdminVehiclesController {
   @ApiConsumes('multipart/form-data')
   @ApiParam({ name: 'id', description: 'ID du véhicule' })
   @ApiResponse({ status: 200, description: 'Images uploadées avec succès' })
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('ADMIN', 'MANAGER')
-  // @ApiBearerAuth()
   @UseInterceptors(FilesInterceptor('images', 10))
   async uploadImages(
     @Param('id') id: string,

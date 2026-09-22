@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { UsersService } from '../users/users.service';
 import { AuthGuard } from '@nestjs/passport';
@@ -215,7 +216,7 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'Mot de passe actuel incorrect' })
   async changePassword(
     @Request() req: any,
-    @Body() body: { currentPassword: string; newPassword: string },
+    @Body() body: ChangePasswordDto,
   ) {
     const result = await this.authService.changePassword(
       req.user.id,

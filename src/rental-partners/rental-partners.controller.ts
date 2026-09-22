@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -6,6 +6,8 @@ import { Roles } from '../auth/roles.decorator';
 import { RentalPartnersService } from './rental-partners.service';
 import { CreateVehicleDto } from '../vehicles/dto/create-vehicle.dto';
 import { CreateApartmentDto } from '../apartments/dto/create-apartment.dto';
+import { UpdateVehicleDto } from '../vehicles/dto/update-vehicle.dto';
+import { UpdateApartmentDto } from '../apartments/dto/update-apartment.dto';
 
 @ApiTags('rental-partners')
 @ApiBearerAuth()
@@ -49,6 +51,30 @@ export class RentalPartnersController {
   @ApiOperation({ summary: 'Soumettre un nouveau logement (statut PENDING, validation admin requise avant publication)' })
   createApartment(@Request() req: any, @Body() dto: CreateApartmentDto) {
     return this.rentalPartnersService.submitApartment(req.user.id, dto);
+  }
+
+  @Patch('vehicles/:id')
+  @ApiOperation({ summary: "Modifier un de ses véhicules (repasse en validation, sauf simple changement de disponibilité)" })
+  updateVehicle(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateVehicleDto) {
+    return this.rentalPartnersService.updateMyVehicle(req.user.id, id, dto);
+  }
+
+  @Patch('apartments/:id')
+  @ApiOperation({ summary: "Modifier un de ses logements (repasse en validation, sauf simple changement de disponibilité)" })
+  updateApartment(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateApartmentDto) {
+    return this.rentalPartnersService.updateMyApartment(req.user.id, id, dto);
+  }
+
+  @Delete('vehicles/:id')
+  @ApiOperation({ summary: 'Retirer un véhicule pas encore publié (en attente ou refusé, sans réservation)' })
+  removeVehicle(@Request() req: any, @Param('id') id: string) {
+    return this.rentalPartnersService.removeMyVehicle(req.user.id, id);
+  }
+
+  @Delete('apartments/:id')
+  @ApiOperation({ summary: 'Retirer un logement pas encore publié (en attente ou refusé, sans réservation)' })
+  removeApartment(@Request() req: any, @Param('id') id: string) {
+    return this.rentalPartnersService.removeMyApartment(req.user.id, id);
   }
 
   @Get('bookings')

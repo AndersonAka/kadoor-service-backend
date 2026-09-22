@@ -4,6 +4,7 @@ import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 import { QueryVehiclesDto } from './dto/query-vehicles.dto';
 import { UpsertVehicleTypePricingDto } from './dto/upsert-vehicle-type-pricing.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { ListingModerationService } from '../listings/listing-moderation.service';
 import { ListingStatus, Prisma, Vehicle, VehicleTypePricing } from '@prisma/client';
 
 export type VehicleWithPricing = Vehicle & {
@@ -13,7 +14,10 @@ export type VehicleWithPricing = Vehicle & {
 
 @Injectable()
 export class VehiclesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private moderation: ListingModerationService,
+  ) {}
 
   /** Montant journalier du forfait « moins de 100 km/j », affichage « à partir de » (forfait km) */
   static tier1DailyCost(p: Pick<VehicleTypePricing, 'tier1MileageDailyAmount'>): number {
@@ -24,7 +28,8 @@ export class VehiclesService {
    * `overrides` permet de forcer partnerId/status côté serveur (ex: soumission par un
    * partenaire loueur -> status PENDING) sans dépendre de ce que le client envoie dans le DTO.
    */
-  create(createVehicleDto: CreateVehicleDto, overrides?: { partnerId?: string; status?: ListingStatus }) {
+  async create(createVehicleDto: CreateVehicleDto, overrides?: { partnerId?: string; status?: ListingStatus }) {
+    if (!overrides?.partnerId) await this.moderation.assertOwnerPartner(createVehicleDto.partnerId, 'vehicle');
     return this.prisma.vehicle.create({
       data: { ...createVehicleDto, ...overrides },
     });
@@ -205,6 +210,10 @@ export class VehiclesService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
+        // Back-office : l'admin doit savoir quel partenaire a proposé le bien pour le modérer.
+        ...(includeAllStatuses && {
+          include: { partner: { select: { id: true, legalName: true, fullName: true, email: true } } },
+        }),
       }),
       this.prisma.vehicle.count({ where }),
     ]);
@@ -298,7 +307,8 @@ export class VehiclesService {
     });
 
     const hasConflict = bookings.length > 0;
-    const available = !hasConflict && vehicle.isAvailable;
+    // Un bien non validé (PENDING/REJECTED) n'est jamais réservable, même via un lien direct.
+    const available = !hasConflict && vehicle.isAvailable && vehicle.status === 'APPROVED';
 
     return {
       available,
@@ -309,11 +319,30 @@ export class VehiclesService {
     };
   }
 
-  update(id: string, updateVehicleDto: UpdateVehicleDto) {
-    return this.prisma.vehicle.update({
+  /** Mise à jour admin : contrôle du propriétaire, motif obligatoire au refus, notification du partenaire. */
+  async update(id: string, updateVehicleDto: UpdateVehicleDto) {
+    const previous = await this.prisma.vehicle.findUnique({ where: { id }, select: { status: true } });
+    if (!previous) throw new NotFoundException(`Véhicule avec l'ID ${id} non trouvé`);
+    if (updateVehicleDto.partnerId !== undefined) {
+      await this.moderation.assertOwnerPartner(updateVehicleDto.partnerId, 'vehicle');
+    }
+    this.moderation.normalizeStatusChange(updateVehicleDto);
+
+    const updated = await this.prisma.vehicle.update({
       where: { id },
       data: updateVehicleDto,
     });
+    await this.moderation.notifyPartnerDecision('vehicle', updated, previous.status);
+    return updated;
+  }
+
+  /** Fiche publique : un bien non validé n'existe pas pour les visiteurs. */
+  async findPublicOne(id: string) {
+    const vehicle = await this.findOne(id);
+    if (vehicle.status !== 'APPROVED') {
+      throw new NotFoundException(`Véhicule avec l'ID ${id} non trouvé`);
+    }
+    return vehicle;
   }
 
   remove(id: string) {

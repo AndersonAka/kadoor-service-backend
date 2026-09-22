@@ -122,23 +122,29 @@ export class AuthService {
     );
     
     if (!user) {
-      return { success: false, message: 'User not found' };
+      return { success: false, message: 'Utilisateur introuvable.' };
     }
 
     // Check if user has a password (OAuth users don't)
     if (!user.password) {
-      return { success: false, message: 'Cannot change password for OAuth accounts' };
+      return { success: false, message: 'Ce compte se connecte via Google : aucun mot de passe à modifier.' };
     }
 
-    // Verify current password
     const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
     if (!isPasswordValid) {
-      return { success: false, message: 'Current password is incorrect' };
+      return { success: false, message: 'Le mot de passe actuel est incorrect.' };
     }
 
-    // Hash and update new password
+    // Un mot de passe provisoire communiqué par un admin ne doit pas être « changé » pour lui-même.
+    if (await bcrypt.compare(newPassword, user.password)) {
+      return { success: false, message: "Le nouveau mot de passe doit être différent de l'actuel." };
+    }
+
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await this.usersService.update(userId, { password: hashedPassword });
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword, mustChangePassword: false },
+    });
 
     return { success: true, message: 'Password changed successfully' };
   }

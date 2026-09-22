@@ -24,6 +24,8 @@ export class AdminService {
       pendingBookings,
       cancelledBookings,
       completedBookings,
+      pendingVehicles,
+      pendingApartments,
     ] = await Promise.all([
       this.prisma.booking.count(),
       this.prisma.vehicle.count(),
@@ -33,6 +35,9 @@ export class AdminService {
       this.prisma.booking.count({ where: { status: 'PENDING' } }),
       this.prisma.booking.count({ where: { status: 'CANCELLED' } }),
       this.prisma.booking.count({ where: { status: 'COMPLETED' } }),
+      // Biens proposés par des partenaires, en attente de validation admin
+      this.prisma.vehicle.count({ where: { status: 'PENDING' } }),
+      this.prisma.apartment.count({ where: { status: 'PENDING' } }),
     ]);
 
     // Revenus
@@ -153,6 +158,10 @@ export class AdminService {
           vehicles: vehicleBookings,
           apartments: apartmentBookings,
         },
+      },
+      listings: {
+        pendingVehicles,
+        pendingApartments,
       },
       recentBookings,
       monthlyRevenues,

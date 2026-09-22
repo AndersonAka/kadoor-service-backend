@@ -3,17 +3,22 @@ import { CreateApartmentDto } from './dto/create-apartment.dto';
 import { UpdateApartmentDto } from './dto/update-apartment.dto';
 import { QueryApartmentsDto } from './dto/query-apartments.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { ListingModerationService } from '../listings/listing-moderation.service';
 import { ListingStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class ApartmentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private moderation: ListingModerationService,
+  ) {}
 
   /**
    * `overrides` permet de forcer partnerId/status côté serveur (ex: soumission par un
    * partenaire loueur -> status PENDING) sans dépendre de ce que le client envoie dans le DTO.
    */
-  create(createApartmentDto: CreateApartmentDto, overrides?: { partnerId?: string; status?: ListingStatus }) {
+  async create(createApartmentDto: CreateApartmentDto, overrides?: { partnerId?: string; status?: ListingStatus }) {
+    if (!overrides?.partnerId) await this.moderation.assertOwnerPartner(createApartmentDto.partnerId, 'apartment');
     return this.prisma.apartment.create({
       data: { ...createApartmentDto, ...overrides },
     });
@@ -116,6 +121,10 @@ export class ApartmentsService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
+        // Back-office : l'admin doit savoir quel partenaire a proposé le bien pour le modérer.
+        ...(includeAllStatuses && {
+          include: { partner: { select: { id: true, legalName: true, fullName: true, email: true } } },
+        }),
       }),
       this.prisma.apartment.count({ where }),
     ]);
@@ -207,7 +216,8 @@ export class ApartmentsService {
 
     // Vérifier s'il y a des conflits
     const hasConflict = bookings.length > 0;
-    const available = !hasConflict && apartment.isAvailable;
+    // Un bien non validé (PENDING/REJECTED) n'est jamais réservable, même via un lien direct.
+    const available = !hasConflict && apartment.isAvailable && apartment.status === 'APPROVED';
 
     return {
       available,
@@ -218,11 +228,30 @@ export class ApartmentsService {
     };
   }
 
-  update(id: string, updateApartmentDto: UpdateApartmentDto) {
-    return this.prisma.apartment.update({
+  /** Mise à jour admin : contrôle du propriétaire, motif obligatoire au refus, notification du partenaire. */
+  async update(id: string, updateApartmentDto: UpdateApartmentDto) {
+    const previous = await this.prisma.apartment.findUnique({ where: { id }, select: { status: true } });
+    if (!previous) throw new NotFoundException(`Appartement avec l'ID ${id} non trouvé`);
+    if (updateApartmentDto.partnerId !== undefined) {
+      await this.moderation.assertOwnerPartner(updateApartmentDto.partnerId, 'apartment');
+    }
+    this.moderation.normalizeStatusChange(updateApartmentDto);
+
+    const updated = await this.prisma.apartment.update({
       where: { id },
       data: updateApartmentDto,
     });
+    await this.moderation.notifyPartnerDecision('apartment', updated, previous.status);
+    return updated;
+  }
+
+  /** Fiche publique : un bien non validé n'existe pas pour les visiteurs. */
+  async findPublicOne(id: string) {
+    const apartment = await this.findOne(id);
+    if (apartment.status !== 'APPROVED') {
+      throw new NotFoundException(`Appartement avec l'ID ${id} non trouvé`);
+    }
+    return apartment;
   }
 
   remove(id: string) {

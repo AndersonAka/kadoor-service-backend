@@ -26,7 +26,15 @@ export class VehiclesController {
   @ApiOperation({ summary: 'Récupérer la liste des véhicules avec filtres et pagination' })
   @ApiResponse({ status: 200, description: 'Liste des véhicules retournée avec succès' })
   findAll(@Query() query: QueryVehiclesDto) {
-    return this.vehiclesService.findAll(query);
+    // Vue publique : jamais les biens en attente/refusés, quels que soient les paramètres envoyés.
+    return this.vehiclesService.findAll({ ...query, includeAllStatuses: false, status: undefined });
+  }
+
+  @Get('types')
+  @ApiOperation({ summary: 'Types de véhicules proposés (ceux dont la tarification est configurée)' })
+  async listTypes() {
+    const pricing = await this.vehiclesService.findAllTypePricing();
+    return pricing.map((p) => p.vehicleType);
   }
 
   @Get(':id')
@@ -35,7 +43,7 @@ export class VehiclesController {
   @ApiResponse({ status: 200, description: 'Détails du véhicule retournés avec succès' })
   @ApiResponse({ status: 404, description: 'Véhicule non trouvé' })
   findOne(@Param('id') id: string) {
-    return this.vehiclesService.findOne(id);
+    return this.vehiclesService.findPublicOne(id);
   }
 
   @Get(':id/availability')

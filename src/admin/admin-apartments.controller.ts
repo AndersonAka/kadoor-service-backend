@@ -1,15 +1,20 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseInterceptors, UploadedFiles } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query, UseInterceptors, UploadedFiles, UseGuards } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiConsumes, ApiBearerAuth } from '@nestjs/swagger';
 import { ApartmentsService } from '../apartments/apartments.service';
 import { CreateApartmentDto } from '../apartments/dto/create-apartment.dto';
 import { UpdateApartmentDto } from '../apartments/dto/update-apartment.dto';
 import { AdminQueryDto } from './dto/admin-query.dto';
-// import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-// import { RolesGuard } from '../auth/roles.guard';
-// import { Roles } from '../auth/roles.decorator';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 
 @ApiTags('admin')
+// Réservé au back-office : sans ces gardes, n'importe quel visiteur pouvait lire les clients
+// ou valider lui-même un bien (PATCH status=APPROVED).
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('ADMIN', 'MANAGER')
 @Controller('admin/apartments')
 export class AdminApartmentsController {
   constructor(private readonly apartmentsService: ApartmentsService) {}
@@ -17,9 +22,6 @@ export class AdminApartmentsController {
   @Get()
   @ApiOperation({ summary: 'Récupérer la liste des appartements (admin)' })
   @ApiResponse({ status: 200, description: 'Liste des appartements récupérée avec succès' })
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('ADMIN', 'MANAGER')
-  // @ApiBearerAuth()
   findAll(@Query() query: AdminQueryDto) {
     // Pour l'admin, on peut retourner tous les appartements (même non disponibles, tous statuts)
     return this.apartmentsService.findAll({ ...query, includeUnavailable: true, includeAllStatuses: true } as any);
@@ -36,9 +38,6 @@ export class AdminApartmentsController {
   @Post()
   @ApiOperation({ summary: 'Créer un nouvel appartement' })
   @ApiResponse({ status: 201, description: 'Appartement créé avec succès' })
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('ADMIN', 'MANAGER')
-  // @ApiBearerAuth()
   create(@Body() createApartmentDto: CreateApartmentDto) {
     return this.apartmentsService.create(createApartmentDto);
   }
@@ -47,9 +46,6 @@ export class AdminApartmentsController {
   @ApiOperation({ summary: 'Modifier un appartement' })
   @ApiParam({ name: 'id', description: 'ID de l\'appartement' })
   @ApiResponse({ status: 200, description: 'Appartement modifié avec succès' })
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('ADMIN', 'MANAGER')
-  // @ApiBearerAuth()
   update(@Param('id') id: string, @Body() updateApartmentDto: UpdateApartmentDto) {
     return this.apartmentsService.update(id, updateApartmentDto);
   }
@@ -58,9 +54,7 @@ export class AdminApartmentsController {
   @ApiOperation({ summary: 'Supprimer un appartement' })
   @ApiParam({ name: 'id', description: 'ID de l\'appartement' })
   @ApiResponse({ status: 200, description: 'Appartement supprimé avec succès' })
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('ADMIN')
-  // @ApiBearerAuth()
+  @Roles('ADMIN')
   remove(@Param('id') id: string) {
     return this.apartmentsService.remove(id);
   }
@@ -70,9 +64,6 @@ export class AdminApartmentsController {
   @ApiConsumes('multipart/form-data')
   @ApiParam({ name: 'id', description: 'ID de l\'appartement' })
   @ApiResponse({ status: 200, description: 'Images uploadées avec succès' })
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('ADMIN', 'MANAGER')
-  // @ApiBearerAuth()
   @UseInterceptors(FilesInterceptor('images', 10))
   async uploadImages(
     @Param('id') id: string,

@@ -7,6 +7,11 @@ import {
   IsNumber,
   IsArray,
   IsDateString,
+  IsNotEmpty,
+  Max,
+  Min,
+  MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -52,17 +57,32 @@ export class CreatePartnerDto {
   @ApiPropertyOptional() @IsOptional() @IsDateString() idExpiry?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() nationality?: string;
 
-  // §1B — Personne morale
-  @ApiPropertyOptional() @IsOptional() @IsString() legalName?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() registrationNumber?: string;
-  @ApiPropertyOptional() @IsOptional() @IsDateString() registrationDate?: string;
+  // §1B — Entreprise / auto-entrepreneur : raison sociale, RCCM et date d'établissement obligatoires
+  @ApiPropertyOptional()
+  @ValidateIf((o) => o.partnerType !== PartnerTypeDto.PHYSICAL)
+  @IsString() @IsNotEmpty({ message: 'La raison sociale est obligatoire.' })
+  legalName?: string;
+
+  @ApiPropertyOptional({ description: 'N° Registre du commerce (RCCM)' })
+  @ValidateIf((o) => o.partnerType !== PartnerTypeDto.PHYSICAL)
+  @IsString() @IsNotEmpty({ message: 'Le N° RCCM est obligatoire.' })
+  registrationNumber?: string;
+
+  @ApiPropertyOptional({ description: "Date d'établissement" })
+  @ValidateIf((o) => o.partnerType !== PartnerTypeDto.PHYSICAL)
+  @IsDateString({}, { message: "La date d'établissement est obligatoire." })
+  registrationDate?: string;
+
+  @ApiPropertyOptional({ description: 'N° Compte contribuable (NCC)' }) @IsOptional() @IsString() taxNumber?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() legalForm?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() incorporationCountry?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() businessSector?: string;
 
   // §1C — Coordonnées
-  @ApiPropertyOptional() @IsOptional() @IsString() address?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() phone?: string;
+  @ApiProperty() @IsString() @IsNotEmpty({ message: "L'adresse est obligatoire." }) address: string;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(-90) @Max(90) latitude?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(-180) @Max(180) longitude?: number;
+  @ApiProperty() @IsString() @IsNotEmpty({ message: 'Le téléphone principal est obligatoire.' }) phone: string;
   @ApiPropertyOptional() @IsOptional() @IsString() phone2?: string;
   @ApiProperty() @IsEmail() email: string;
   @ApiPropertyOptional() @IsOptional() @IsString() website?: string;
@@ -103,13 +123,16 @@ export class CreatePartnerDto {
   // §5 — Appartement
   @ApiPropertyOptional() @IsOptional() @IsNumber() unitCount?: number;
   @ApiPropertyOptional() @IsOptional() @IsArray() housingTypes?: string[];
+  @ApiPropertyOptional() @IsOptional() @IsString() housingTypeOther?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() mainCities?: string;
   @ApiPropertyOptional() @IsOptional() @IsNumber() avgMonthlyRent?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0) monthlyRentMin?: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0) monthlyRentMax?: number;
   @ApiPropertyOptional() @IsOptional() @IsArray() realEstateCompliance?: string[];
   @ApiPropertyOptional() @IsOptional() @IsArray() includedServices?: string[];
 
   // Création compte MERCHANT
-  @ApiPropertyOptional() @IsOptional() @IsString() merchantPassword?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MinLength(8) merchantPassword?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() merchantFirstName?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() merchantLastName?: string;
 }

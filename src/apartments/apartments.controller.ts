@@ -26,7 +26,8 @@ export class ApartmentsController {
   @ApiOperation({ summary: 'Récupérer la liste des appartements avec filtres et pagination' })
   @ApiResponse({ status: 200, description: 'Liste des appartements retournée avec succès' })
   findAll(@Query() query: QueryApartmentsDto) {
-    return this.apartmentsService.findAll(query);
+    // Vue publique : jamais les biens en attente/refusés, quels que soient les paramètres envoyés.
+    return this.apartmentsService.findAll({ ...query, includeAllStatuses: false, status: undefined });
   }
 
   @Get(':id')
@@ -35,7 +36,7 @@ export class ApartmentsController {
   @ApiResponse({ status: 200, description: 'Détails de l\'appartement retournés avec succès' })
   @ApiResponse({ status: 404, description: 'Appartement non trouvé' })
   findOne(@Param('id') id: string) {
-    return this.apartmentsService.findOne(id);
+    return this.apartmentsService.findPublicOne(id);
   }
 
   @Get(':id/availability')
