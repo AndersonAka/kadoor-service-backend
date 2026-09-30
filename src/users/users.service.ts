@@ -27,7 +27,14 @@ export class UsersService {
     });
 
     if (existingUser) {
-      throw new ConflictException('Email already exists');
+      if (existingUser.provider === 'google' && !existingUser.password) {
+        throw new ConflictException(
+          'Cet email est déjà lié à un compte Google. Connectez-vous avec Google.',
+        );
+      }
+      throw new ConflictException(
+        'Cet email est déjà utilisé. Connectez-vous ou utilisez un autre email.',
+      );
     }
 
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);

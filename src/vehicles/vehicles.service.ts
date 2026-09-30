@@ -19,7 +19,7 @@ export class VehiclesService {
     private moderation: ListingModerationService,
   ) {}
 
-  /** Montant journalier du forfait « moins de 100 km/j », affichage « à partir de » (forfait km) */
+  /** Montant journalier du forfait « moins de 150 km/j », affichage « à partir de » (forfait km) */
   static tier1DailyCost(p: Pick<VehicleTypePricing, 'tier1MileageDailyAmount'>): number {
     return Math.round(p.tier1MileageDailyAmount);
   }

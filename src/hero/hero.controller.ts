@@ -10,10 +10,13 @@ import { Roles } from '../auth/roles.decorator';
 export class HeroController {
   constructor(private readonly heroService: HeroService) {}
 
-  // GET reste public : consommé sans auth par le slider de la page d'accueil.
+  /**
+   * Liste publique + admin : tous les slides (triés).
+   * Le front public filtre les inactifs ; l'admin a besoin de la liste complète.
+   */
   @Get()
   findAll() {
-    return this.heroService.findAll();
+    return this.heroService.findAll(false);
   }
 
   @Get(':id')

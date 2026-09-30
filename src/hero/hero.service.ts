@@ -13,8 +13,10 @@ export class HeroService {
     });
   }
 
-  findAll() {
+  /** Public : slides actifs uniquement. Admin : tous (activeOnly = false). */
+  findAll(activeOnly = false) {
     return this.prisma.heroSlide.findMany({
+      where: activeOnly ? { isActive: true } : undefined,
       orderBy: { order: 'asc' },
     });
   }

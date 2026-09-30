@@ -2,7 +2,7 @@ import { IsNumber, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpsertVehicleTypePricingDto {
-  /** Forfait moins de 100 km/j — montant journalier (FCFA) */
+  /** Forfait moins de 150 km/j — montant journalier (FCFA) */
   @Type(() => Number)
   @IsNumber()
   @Min(0)

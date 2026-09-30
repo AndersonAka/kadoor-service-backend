@@ -120,9 +120,9 @@ model User {
 model VehicleTypePricing {
   id                       String   @id @default(uuid())
   vehicleType              String   @unique // Berline, SUV, Utilitaire, Fourgonnette, Luxe
-  /// Forfait « moins de 100 km/jour » — montant journalier (FCFA)
+  /// Forfait « moins de 150 km/jour » — montant journalier (FCFA)
   tier1MileageDailyAmount  Float    @default(30000)
-  /// Forfait « 100 à 200 km/jour » — montant journalier (FCFA)
+  /// Forfait « 150 à 200 km/jour » — montant journalier (FCFA)
   tier2MileageDailyAmount  Float    @default(45000)
   /// Forfait « 201 à 250 km/jour » — montant journalier (FCFA)
   tier3MileageDailyAmount  Float    @default(70000)

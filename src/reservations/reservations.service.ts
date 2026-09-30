@@ -74,7 +74,7 @@ export class ReservationsService {
     };
   }
 
-  /** Forfait km retenu pour le calcul (défaut : TIER1, moins de 100 km/j). */
+  /** Forfait km retenu pour le calcul (défaut : TIER1, moins de 150 km/j). */
   private resolveVehicleMileageTier(mileagePackage?: string | null): 'TIER1' | 'TIER2' | 'TIER3' {
     if (mileagePackage === 'TIER2' || mileagePackage === 'TIER3') return mileagePackage;
     return 'TIER1';
