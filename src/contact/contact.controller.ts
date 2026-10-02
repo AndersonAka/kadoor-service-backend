@@ -15,6 +15,8 @@ import { ContactService } from './contact.service';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermissions } from '../auth/permissions.decorator';
 
 @ApiTags('contact')
 @Controller('contact')
@@ -28,8 +30,9 @@ export class ContactController {
   }
 
   @Get()
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(AuthGuard('jwt'), RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('contact_messages')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Lister les messages de contact (admin)' })
   findAll(
@@ -45,8 +48,9 @@ export class ContactController {
   }
 
   @Get('unread-count')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(AuthGuard('jwt'), RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('contact_messages')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Nombre de messages non lus (admin)' })
   countUnread() {
@@ -54,8 +58,9 @@ export class ContactController {
   }
 
   @Get(':id')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(AuthGuard('jwt'), RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('contact_messages')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Détail d\'un message de contact (admin)' })
   findOne(@Param('id') id: string) {
@@ -63,8 +68,9 @@ export class ContactController {
   }
 
   @Patch(':id/status')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(AuthGuard('jwt'), RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('contact_messages')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Mettre à jour le statut d\'un message (admin)' })
   updateStatus(@Param('id') id: string, @Body('status') status: string) {
@@ -72,8 +78,9 @@ export class ContactController {
   }
 
   @Patch(':id/read')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(AuthGuard('jwt'), RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('contact_messages')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Marquer un message comme lu (admin)' })
   markAsRead(@Param('id') id: string) {
@@ -81,8 +88,9 @@ export class ContactController {
   }
 
   @Delete(':id')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(AuthGuard('jwt'), RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('contact_messages')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Supprimer un message de contact (admin)' })
   remove(@Param('id') id: string) {

@@ -6,14 +6,17 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermissions } from '../auth/permissions.decorator';
 import { PartnersService } from './partners.service';
 import { CreatePartnerDto } from './dto/create-partner.dto';
 import { UpdatePartnerDto } from './dto/update-partner.dto';
 
 @ApiTags('partners')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN', 'MANAGER')
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+@RequirePermissions('partners')
 @Controller('admin/partners')
 export class PartnersController {
   constructor(private readonly partnersService: PartnersService) {}

@@ -6,6 +6,8 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermissions } from '../auth/permissions.decorator';
 import { GiftCardsService } from './gift-cards.service';
 import { CreateGiftCardDto } from './dto/create-gift-card.dto';
 import { CreateGiftCardBatchDto } from './dto/create-gift-card-batch.dto';
@@ -69,17 +71,19 @@ export class GiftCardsController {
     return this.giftCardsService.findMyBatches(req.user.id);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
   @Get('admin/stats')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('gift_cards')
   @ApiOperation({ summary: 'Statistiques cartes cadeaux (admin)' })
   getAdminStats() {
     return this.giftCardsService.getAdminStats();
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
   @Get()
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('gift_cards')
   @ApiOperation({ summary: 'Toutes les cartes cadeaux (admin)' })
   findAll(
     @Query('status') status?: string,
@@ -95,17 +99,19 @@ export class GiftCardsController {
     });
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
   @Get(':id')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('gift_cards')
   @ApiOperation({ summary: 'Détail d\'une carte cadeau (admin)' })
   findOne(@Param('id') id: string) {
     return this.giftCardsService.findOne(id);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
   @Patch(':id/cancel')
-  @Roles('ADMIN', 'MANAGER')
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('gift_cards')
   @ApiOperation({ summary: 'Annuler une carte cadeau (admin)' })
   cancel(@Param('id') id: string, @Body('reason') reason?: string) {
     return this.giftCardsService.cancel(id, reason);

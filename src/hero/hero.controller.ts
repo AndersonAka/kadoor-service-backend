@@ -5,6 +5,8 @@ import { UpdateHeroDto } from './dto/update-hero.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermissions } from '../auth/permissions.decorator';
 
 @Controller('hero')
 export class HeroController {
@@ -25,15 +27,17 @@ export class HeroController {
   }
 
   @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('hero')
   create(@Body() createHeroDto: CreateHeroDto) {
     return this.heroService.create(createHeroDto);
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('hero')
   update(@Param('id') id: string, @Body() updateHeroDto: UpdateHeroDto) {
     return this.heroService.update(+id, updateHeroDto);
   }

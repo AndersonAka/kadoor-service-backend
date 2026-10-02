@@ -20,6 +20,8 @@ import { UpdatePromoCodeDto } from './dto/update-promo-code.dto';
 import { ValidatePromoCodeDto } from './dto/validate-promo-code.dto';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermissions } from '../auth/permissions.decorator';
 
 @ApiTags('promo-codes')
 @Controller('promo-codes')
@@ -36,8 +38,9 @@ export class PromoCodesController {
   // ─── Admin ─────────────────────────────────────────────
 
   @Post()
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(AuthGuard('jwt'), RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('promo_codes')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Créer un code promo (admin)' })
   create(@Body() dto: CreatePromoCodeDto) {
@@ -45,8 +48,9 @@ export class PromoCodesController {
   }
 
   @Post('generate')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(AuthGuard('jwt'), RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('promo_codes')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Générer un code promo aléatoire (admin)' })
   generate(@Body() dto: GeneratePromoCodeDto) {
@@ -67,8 +71,9 @@ export class PromoCodesController {
   }
 
   @Get()
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(AuthGuard('jwt'), RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('promo_codes')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Lister les codes promo (admin)' })
   findAll(@Query('active') active?: string) {
@@ -77,8 +82,9 @@ export class PromoCodesController {
   }
 
   @Get(':id')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(AuthGuard('jwt'), RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('promo_codes')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Détail d\'un code promo (admin)' })
   findOne(@Param('id') id: string) {
@@ -86,8 +92,9 @@ export class PromoCodesController {
   }
 
   @Patch(':id')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(AuthGuard('jwt'), RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('promo_codes')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Mettre à jour un code promo (admin)' })
   update(@Param('id') id: string, @Body() dto: UpdatePromoCodeDto) {
@@ -95,8 +102,9 @@ export class PromoCodesController {
   }
 
   @Delete(':id')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(AuthGuard('jwt'), RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('promo_codes')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Supprimer un code promo (admin)' })
   remove(@Param('id') id: string) {

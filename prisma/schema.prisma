@@ -10,6 +10,8 @@ enum Role {
   USER
   ADMIN
   MANAGER
+  /// Commercial back-office : accès limité aux modules listés dans User.permissions
+  COMMERCIAL
   MERCHANT
   /// Partenaire loueur (véhicules/logements) — espace self-service en lecture seule sur sa flotte et ses réservations
   RENTAL_PARTNER
@@ -93,6 +95,8 @@ model User {
   phone               String?
   address             String?   // Lieu d'habitation de l'utilisateur
   role                Role      @default(USER)
+  /// Modules admin autorisés pour un COMMERCIAL (ex: ["reservations","clients"]). Ignoré pour ADMIN.
+  permissions         String[]  @default([])
   googleId            String?   @unique // ID Google pour OAuth
   avatar              String?   // URL de l'avatar (Google profile picture)
   provider            String?   @default("local") // "local" ou "google"

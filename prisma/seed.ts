@@ -41,6 +41,21 @@ async function main() {
   });
   console.log(`Admin user created: ${adminUser.email} (password: admin123)`);
 
+  console.log('Seeding Commercial User...');
+  const commercialPassword = await bcrypt.hash('commercial123', 10);
+  const commercialUser = await prisma.user.create({
+    data: {
+      email: 'commercial@kadoorservice.com',
+      password: commercialPassword,
+      firstName: 'Commercial',
+      lastName: 'KADOOR',
+      role: Role.COMMERCIAL,
+      permissions: ['dashboard', 'reservations', 'clients', 'invoices', 'gift_cards'],
+      mustChangePassword: false,
+    },
+  });
+  console.log(`Commercial user created: ${commercialUser.email} (password: commercial123)`);
+
   console.log('Seeding HeroSlides...');
   const slides = [
     {

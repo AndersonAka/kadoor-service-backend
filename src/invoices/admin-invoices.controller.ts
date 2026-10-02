@@ -1,13 +1,19 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Res, UseGuards, Request } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
 import type { Response } from 'express';
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { QueryAdminInvoicesDto } from './dto/query-admin-invoices.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermissions } from '../auth/permissions.decorator';
 
 @Controller('admin/invoices')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+@RequirePermissions('invoices')
 export class AdminInvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 

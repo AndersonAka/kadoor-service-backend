@@ -3,6 +3,8 @@ import { SettingsService } from './settings.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermissions } from '../auth/permissions.decorator';
 
 @Controller('settings')
 export class SettingsController {
@@ -19,15 +21,17 @@ export class SettingsController {
     return this.settingsService.findByKey(key);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('settings')
   @Post()
   upsert(@Body() body: { key: string; value: string; description?: string }) {
     return this.settingsService.upsert(body.key, body.value, body.description);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'MANAGER')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+  @RequirePermissions('settings')
   @Delete(':key')
   remove(@Param('key') key: string) {
     return this.settingsService.remove(key);

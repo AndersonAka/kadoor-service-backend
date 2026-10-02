@@ -4,7 +4,7 @@ import PDFDocument from 'pdfkit';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const STAFF_ROLES = ['ADMIN', 'MANAGER'];
+const STAFF_ROLES = ['ADMIN', 'MANAGER', 'COMMERCIAL'];
 
 @Injectable()
 export class DocumentsService {

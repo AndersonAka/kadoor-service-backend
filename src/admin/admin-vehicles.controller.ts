@@ -9,13 +9,16 @@ import { AdminQueryDto } from './dto/admin-query.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermissions } from '../auth/permissions.decorator';
 
 @ApiTags('admin')
 // Réservé au back-office : sans ces gardes, n'importe quel visiteur pouvait lire les clients
 // ou valider lui-même un bien (PATCH status=APPROVED).
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN', 'MANAGER')
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
+@RequirePermissions('vehicles')
 @Controller('admin/vehicles')
 export class AdminVehiclesController {
   constructor(private readonly vehiclesService: VehiclesService) {}
