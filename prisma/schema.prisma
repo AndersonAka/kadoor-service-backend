@@ -116,6 +116,7 @@ model User {
   invoices        Invoice[]    @relation("CustomerInvoices")
   createdInvoices Invoice[]    @relation("AdminCreatedInvoices")
   partner         Partner?
+  createdPartners Partner[]    @relation("PartnerCreatedBy")
   giftCards       GiftCard[]
   giftCardBatches GiftCardBatch[]
 }
@@ -578,6 +579,10 @@ model Partner {
   kycAnalyst    String?
   validatedAt   DateTime?
   validatedById String?
+
+  // Staff qui a enregistré la fiche partenaire (admin / manager / commercial)
+  createdById String?
+  createdBy   User?   @relation("PartnerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   // Compte utilisateur MERCHANT lié
   userId String? @unique

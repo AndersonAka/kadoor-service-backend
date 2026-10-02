@@ -74,11 +74,23 @@ export class PartnersService {
           ...rest,
           beneficiaries: beneficiaries ? JSON.parse(JSON.stringify(beneficiaries)) : undefined,
           userId,
+          createdById: adminId || undefined,
         }) as any,
-        include: { user: { select: { id: true, email: true, role: true } }, documents: true },
+        include: {
+          user: { select: { id: true, email: true, role: true } },
+          createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+          documents: true,
+        },
       });
     });
   }
+
+  private readonly createdBySelect = {
+    id: true,
+    firstName: true,
+    lastName: true,
+    email: true,
+  } as const;
 
   async findAll(query: { status?: string; category?: string; search?: string }) {
     const where: any = {};
@@ -97,6 +109,7 @@ export class PartnersService {
       orderBy: { createdAt: 'desc' },
       include: {
         user: { select: { id: true, email: true, role: true, isActive: true } },
+        createdBy: { select: this.createdBySelect },
         documents: true,
         _count: { select: { giftCardTransactions: true } },
       },
@@ -108,6 +121,7 @@ export class PartnersService {
       where: { id },
       include: {
         user: { select: { id: true, email: true, role: true, isActive: true, createdAt: true } },
+        createdBy: { select: this.createdBySelect },
         documents: true,
         giftCardTransactions: {
           take: 10,
