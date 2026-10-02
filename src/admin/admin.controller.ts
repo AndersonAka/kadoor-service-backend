@@ -13,12 +13,13 @@ import { RequirePermissions } from '../auth/permissions.decorator';
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
 @Roles('ADMIN', 'MANAGER', 'COMMERCIAL')
-@RequirePermissions('dashboard')
 @Controller('admin')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
+  // Accès stats : dashboard OU un module métier (commercial avec perms partielles)
   @Get('dashboard/stats')
+  @RequirePermissions('dashboard', 'reservations', 'clients', 'invoices', 'vehicles', 'apartments')
   @ApiOperation({ summary: 'Récupérer les statistiques du dashboard admin' })
   @ApiResponse({ status: 200, description: 'Statistiques récupérées avec succès' })
   async getDashboardStats() {
@@ -26,6 +27,7 @@ export class AdminController {
   }
 
   @Get('dashboard/charts')
+  @RequirePermissions('dashboard', 'invoices', 'reservations')
   @ApiOperation({ summary: 'Récupérer les données pour les graphiques' })
   @ApiQuery({ name: 'period', enum: ['day', 'week', 'month', 'year'], required: false, description: 'Période pour les graphiques' })
   @ApiResponse({ status: 200, description: 'Données des graphiques récupérées avec succès' })

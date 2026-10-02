@@ -10,6 +10,7 @@ import {
 
 export enum StaffAssignableRole {
   ADMIN = 'ADMIN',
+  MANAGER = 'MANAGER',
   COMMERCIAL = 'COMMERCIAL',
 }
 

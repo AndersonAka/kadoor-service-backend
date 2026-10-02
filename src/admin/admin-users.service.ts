@@ -56,6 +56,7 @@ export class AdminUsersService {
     }
 
     const role = dto.role as Role;
+    // ADMIN / MANAGER : accès large (géré côté hasPermission) — pas de permissions[]
     const permissions =
       role === StaffAssignableRole.COMMERCIAL
         ? sanitizePermissions(dto.permissions)
@@ -109,13 +110,8 @@ export class AdminUsersService {
       throw new BadRequestException('Rôle non autorisé');
     }
 
-    // On ne permet de basculer que vers ADMIN / COMMERCIAL via l’UI (MANAGER conservé tel quel).
-    if (dto.role && dto.role !== StaffAssignableRole.ADMIN && dto.role !== StaffAssignableRole.COMMERCIAL) {
-      throw new BadRequestException('Rôle non assignable');
-    }
-
     let permissions = current.permissions;
-    if (nextRole === Role.ADMIN) {
+    if (nextRole === Role.ADMIN || nextRole === Role.MANAGER) {
       permissions = [];
     } else if (nextRole === Role.COMMERCIAL) {
       if (dto.permissions !== undefined) {
