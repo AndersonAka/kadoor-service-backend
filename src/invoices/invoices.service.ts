@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
-import { PaystackService } from '../reservations/paystack.service';
+import { GeniusPayService } from '../payments/providers/geniuspay/geniuspay.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 
@@ -50,7 +50,7 @@ function formatNumberFr(n: number): string {
 export class InvoicesService {
   constructor(
     private prisma: PrismaService,
-    private paystackService: PaystackService,
+    private geniusPayService: GeniusPayService,
     private configService: ConfigService,
   ) {}
 
@@ -369,65 +369,62 @@ export class InvoicesService {
       throw new BadRequestException('Aucun montant à payer pour cette facture');
     }
 
-    const paystackReference = `INV-${invoice.id}-${Date.now()}`;
     const webAppUrl = this.configService.get<string>('WEB_APP_URL') || 'http://localhost:3000';
     const locale = this.configService.get<string>('WEB_APP_DEFAULT_LOCALE') || 'fr';
     const callback = `${webAppUrl}/${locale}/payment/callback?invoiceId=${invoice.id}`;
 
-    const result = await this.paystackService.initializeTransaction({
-      email: userEmail,
+    const result = await this.geniusPayService.createPayment({
       amount: amountDue,
-      reference: paystackReference,
-      callback_url: callback,
-      metadata: { invoiceId: invoice.id, type: 'invoice' },
+      description: `Facture ${invoice.reference || invoice.id}`,
+      customer: { email: userEmail },
+      success_url: callback,
+      error_url: callback,
+      metadata: {
+        paymentType: 'invoice',
+        entityId: invoice.id,
+        userId,
+        invoiceId: invoice.id,
+      },
     });
 
     await this.prisma.invoice.update({
       where: { id: invoice.id },
-      data: { paystackReference },
+      data: { paymentReference: result.reference },
     });
 
-    return { paymentUrl: result.authorization_url, reference: paystackReference };
+    return { paymentUrl: result.checkout_url, reference: result.reference };
   }
 
-  async verifyPayment(userId: string, id: string, paystackRefFromCallback?: string) {
+  async verifyPayment(userId: string, id: string, paymentRefFromCallback?: string) {
     const invoice = await this.findMineOne(userId, id);
     const reference =
-      paystackRefFromCallback?.trim() || invoice.paystackReference || undefined;
+      paymentRefFromCallback?.trim() || invoice.paymentReference || undefined;
     if (!reference) throw new BadRequestException('Référence de paiement absente');
 
     if (invoice.status === 'PAID') {
       return { status: 'success', invoice, message: 'Facture déjà payée' };
     }
 
-    const verification = await this.paystackService.verifyTransaction(reference);
+    const verification = await this.geniusPayService.getPayment(reference);
     if (verification.status === 'success') {
       const updated = await this.prisma.invoice.update({
         where: { id: invoice.id },
-        data: { status: 'PAID', paidAt: new Date(), paystackReference: reference },
+        data: { status: 'PAID', paidAt: new Date(), paymentReference: reference },
         include: this.invoiceInclude,
       });
       return { status: 'success', invoice: updated };
     }
 
-    const mapped =
-      verification.status === 'failed' || verification.status === 'abandoned'
-        ? 'failed'
-        : 'pending';
+    const mapped = verification.status === 'failed' ? 'failed' : 'pending';
 
-    return { status: mapped, invoice, paystackStatus: verification.status };
+    return { status: mapped, invoice, paymentStatus: verification.status };
   }
 
-  async handleWebhook(signature: string, rawBody: string, body: any) {
-    const isValid = this.paystackService.validateWebhookSignature(signature, rawBody);
-    if (!isValid) return { status: 'error', message: 'Invalid signature' };
-    if (body?.event !== 'charge.success') return { status: 'ok' };
-    const reference = body?.data?.reference;
-    if (!reference) return { status: 'ok' };
-
-    const invoice = await this.prisma.invoice.findFirst({ where: { paystackReference: reference } });
+  async applyPaymentResultFromWebhook(invoiceId: string, success: boolean) {
+    const invoice = await this.prisma.invoice.findUnique({ where: { id: invoiceId } });
     if (!invoice) return { status: 'ok' };
     if (invoice.status === 'PAID') return { status: 'ok' };
+    if (!success) return { status: 'ok' };
 
     await this.prisma.invoice.update({
       where: { id: invoice.id },
@@ -1061,7 +1058,7 @@ export class InvoicesService {
           .fontSize(8)
           .fillColor(COLORS.textMuted)
           .text(
-            'Conditions de paiement : règlement intégral à réception de la facture, sauf échéance précisée. Paiement sécurisé via Paystack disponible depuis votre espace client.',
+            'Conditions de paiement : règlement intégral à réception de la facture, sauf échéance précisée. Paiement sécurisé via GeniusPay disponible depuis votre espace client.',
             margin,
             y,
             { width: contentWidth, lineGap: 2, align: 'left' },

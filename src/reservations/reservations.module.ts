@@ -1,8 +1,7 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ReservationsService } from './reservations.service';
 import { ReservationsController } from './reservations.controller';
-import { PaystackService } from './paystack.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { VehiclesModule } from '../vehicles/vehicles.module';
 import { ApartmentsModule } from '../apartments/apartments.module';
@@ -12,12 +11,24 @@ import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SettingsModule } from '../settings/settings.module';
 import { PromoCodesModule } from '../promo-codes/promo-codes.module';
-import { GiftCardsModule } from '../gift-cards/gift-cards.module';
+import { GeniusPayModule } from '../payments/providers/geniuspay/geniuspay.module';
 
 @Module({
-  imports: [ConfigModule, PrismaModule, VehiclesModule, ApartmentsModule, DocumentsModule, EmailModule, AuthModule, NotificationsModule, SettingsModule, PromoCodesModule, forwardRef(() => GiftCardsModule)],
-  providers: [ReservationsService, PaystackService],
+  imports: [
+    ConfigModule,
+    PrismaModule,
+    VehiclesModule,
+    ApartmentsModule,
+    DocumentsModule,
+    EmailModule,
+    AuthModule,
+    NotificationsModule,
+    SettingsModule,
+    PromoCodesModule,
+    GeniusPayModule,
+  ],
+  providers: [ReservationsService],
   controllers: [ReservationsController],
-  exports: [ReservationsService, PaystackService],
+  exports: [ReservationsService],
 })
 export class ReservationsModule {}

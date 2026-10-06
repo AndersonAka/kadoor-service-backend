@@ -8,13 +8,8 @@ import {
   Query,
   UseGuards,
   Request,
-  Headers,
-  HttpCode,
-  HttpStatus,
   UnauthorizedException,
-  Req,
 } from '@nestjs/common';
-import type { Request as ExpressRequest } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { ReservationsService } from './reservations.service';
 import { CreateReservationVehicleDto } from './dto/create-reservation-vehicle.dto';
@@ -112,12 +107,12 @@ export class ReservationsController {
     return this.reservationsService.cancel(id);
   }
 
-  // ─── Paystack Payment Endpoints ──────────────────────────────────────
+  // ─── Payment Endpoints (GeniusPay) ───────────────────────────────────
 
   @Post('vehicles/initiate-payment')
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Créer une réservation véhicule et initier le paiement Paystack' })
+  @ApiOperation({ summary: 'Créer une réservation véhicule et initier le paiement GeniusPay' })
   async initiateVehiclePayment(
     @Body() dto: CreateReservationVehicleDto,
     @Request() req: any,
@@ -131,7 +126,7 @@ export class ReservationsController {
   @Post('apartments/initiate-payment')
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Créer une réservation appartement et initier le paiement Paystack' })
+  @ApiOperation({ summary: 'Créer une réservation appartement et initier le paiement GeniusPay' })
   async initiateApartmentPayment(
     @Body() dto: CreateReservationApartmentDto,
     @Request() req: any,
@@ -145,20 +140,8 @@ export class ReservationsController {
   @Post('verify-payment/:bookingId')
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Vérifier le paiement Paystack et confirmer la réservation' })
+  @ApiOperation({ summary: 'Vérifier le paiement GeniusPay et confirmer la réservation' })
   async verifyPayment(@Param('bookingId') bookingId: string) {
     return this.reservationsService.verifyPayment(bookingId);
-  }
-
-  @Post('paystack/webhook')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Webhook Paystack (public)' })
-  async handleWebhook(
-    @Headers('x-paystack-signature') signature: string,
-    @Req() req: any,
-    @Body() body: any,
-  ) {
-    const rawBody = req.rawBody?.toString() || JSON.stringify(body);
-    return this.reservationsService.handleWebhook(signature, rawBody, body);
   }
 }

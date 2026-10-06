@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Headers, Param, Post, Req, Request, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Request, Res, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import type { Request as ExpressRequest, Response } from 'express';
+import type { Response } from 'express';
 import { InvoicesService } from './invoices.service';
 
 @Controller('invoices')
@@ -49,15 +49,5 @@ export class InvoicesController {
   ) {
     const userId = req.user?.id || req.user?.userId;
     return this.invoicesService.verifyPayment(userId, id, body?.reference);
-  }
-
-  @Post('paystack/webhook')
-  handleWebhook(
-    @Headers('x-paystack-signature') signature: string,
-    @Req() req: ExpressRequest & { rawBody?: Buffer },
-    @Body() body: any,
-  ) {
-    const rawBody = req.rawBody?.toString() || JSON.stringify(body);
-    return this.invoicesService.handleWebhook(signature, rawBody, body);
   }
 }

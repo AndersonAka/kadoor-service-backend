@@ -26,18 +26,18 @@ export class GiftCardsController {
     return this.giftCardsService.findByCodePublic(code);
   }
 
-  /** Commande + paiement Paystack — remplace la précommande */
+  /** Commande + paiement GeniusPay — remplace la précommande */
   @UseGuards(JwtAuthGuard)
   @Post('initiate-payment')
-  @ApiOperation({ summary: 'Commander une carte cadeau et initialiser le paiement Paystack' })
+  @ApiOperation({ summary: 'Commander une carte cadeau et initialiser le paiement GeniusPay' })
   initiatePayment(@Body() dto: CreateGiftCardDto, @Request() req: any) {
     return this.giftCardsService.initiatePayment(dto, req.user.id);
   }
 
-  /** Vérification paiement après retour Paystack */
+  /** Vérification paiement après retour GeniusPay */
   @UseGuards(JwtAuthGuard)
   @Post('verify-payment/:id')
-  @ApiOperation({ summary: 'Vérifier le paiement Paystack d\'une carte cadeau' })
+  @ApiOperation({ summary: 'Vérifier le paiement GeniusPay d\'une carte cadeau' })
   verifyPayment(@Param('id') id: string, @Query('reference') reference?: string) {
     return this.giftCardsService.verifyPayment(id, reference);
   }
@@ -49,17 +49,17 @@ export class GiftCardsController {
     return this.giftCardsService.findMyCards(req.user.id);
   }
 
-  /** Achat groupé — commande + paiement Paystack pour un lot de N cartes */
+  /** Achat groupé — commande + paiement GeniusPay pour un lot de N cartes */
   @UseGuards(JwtAuthGuard)
   @Post('batch/initiate-payment')
-  @ApiOperation({ summary: 'Commander un lot de cartes cadeaux (achat groupé) et initialiser le paiement Paystack' })
+  @ApiOperation({ summary: 'Commander un lot de cartes cadeaux (achat groupé) et initialiser le paiement GeniusPay' })
   initiateBatchPayment(@Body() dto: CreateGiftCardBatchDto, @Request() req: any) {
     return this.giftCardsService.initiateBatchPayment(dto, req.user.id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('batch/verify-payment/:id')
-  @ApiOperation({ summary: 'Vérifier le paiement Paystack d\'un achat groupé de cartes cadeaux' })
+  @ApiOperation({ summary: 'Vérifier le paiement GeniusPay d\'un achat groupé de cartes cadeaux' })
   verifyBatchPayment(@Param('id') id: string, @Query('reference') reference?: string) {
     return this.giftCardsService.verifyBatchPayment(id, reference);
   }

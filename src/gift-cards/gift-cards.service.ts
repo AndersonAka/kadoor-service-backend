@@ -1,18 +1,17 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
-import { PaystackService } from '../reservations/paystack.service';
+import { GeniusPayService } from '../payments/providers/geniuspay/geniuspay.service';
 import { ConfigService } from '@nestjs/config';
 import { CreateGiftCardDto } from './dto/create-gift-card.dto';
 import { CreateGiftCardBatchDto } from './dto/create-gift-card-batch.dto';
-import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class GiftCardsService {
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
-    private paystackService: PaystackService,
+    private geniusPayService: GeniusPayService,
     private configService: ConfigService,
   ) {}
 
@@ -28,12 +27,11 @@ export class GiftCardsService {
     return `${webAppUrl}/${locale}/payment/callback?giftCardId=${cardId}`;
   }
 
-  /** Crée la carte et initialise le paiement Paystack — flux commande */
+  /** Crée la carte et initialise le paiement GeniusPay — flux commande */
   async initiatePayment(dto: CreateGiftCardDto, userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Utilisateur introuvable');
 
-    // Générer un code unique
     let code: string;
     let unique = false;
     do {
@@ -46,9 +44,6 @@ export class GiftCardsService {
       ? new Date(dto.validUntil)
       : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
 
-    const paystackReference = `GC-${uuidv4()}`;
-
-    // Créer la carte en PENDING_PAYMENT
     const card = await this.prisma.giftCard.create({
       data: {
         code,
@@ -62,33 +57,43 @@ export class GiftCardsService {
         validUntil,
         userId,
         status: 'PENDING_PAYMENT',
-        paystackReference,
       },
     });
 
     const callbackUrl = this.buildCallbackUrl(card.id);
 
-    const paystack = await this.paystackService.initializeTransaction({
-      email: user.email,
+    const payment = await this.geniusPayService.createPayment({
       amount: dto.initialAmount,
-      reference: paystackReference,
-      callback_url: callbackUrl,
+      description: `Carte cadeau Kadoor — ${code}`,
+      customer: {
+        email: user.email,
+        firstName: user.firstName || undefined,
+        lastName: user.lastName || undefined,
+      },
+      success_url: callbackUrl,
+      error_url: callbackUrl,
       metadata: {
-        type: 'GIFT_CARD',
-        giftCardId: card.id,
+        paymentType: 'gift_card',
+        entityId: card.id,
+        userId,
         code: card.code,
         recipientName: dto.recipientName,
       },
     });
 
+    const updated = await this.prisma.giftCard.update({
+      where: { id: card.id },
+      data: { paymentReference: payment.reference },
+    });
+
     return {
-      card,
-      authorizationUrl: paystack.authorization_url,
-      reference: paystackReference,
+      card: updated,
+      authorizationUrl: payment.checkout_url,
+      reference: payment.reference,
     };
   }
 
-  /** Vérifie le paiement Paystack et active la carte */
+  /** Vérifie le paiement GeniusPay et active la carte */
   async verifyPayment(cardId: string, reference?: string) {
     const card = await this.prisma.giftCard.findUnique({
       where: { id: cardId },
@@ -103,27 +108,29 @@ export class GiftCardsService {
       return { card, status: 'failed' };
     }
 
-    const ref = reference || card.paystackReference;
-    if (!ref) throw new BadRequestException('Référence Paystack manquante');
+    const ref = reference || card.paymentReference;
+    if (!ref) throw new BadRequestException('Référence de paiement manquante');
 
-    const verification = await this.paystackService.verifyTransaction(ref);
+    const verification = await this.geniusPayService.getPayment(ref);
 
     if (verification.status === 'success') {
       const activated = await this.prisma.giftCard.update({
         where: { id: card.id },
-        data: { status: 'ACTIVE', validatedAt: new Date() },
+        data: { status: 'ACTIVE', validatedAt: new Date(), paymentReference: ref },
         include: { user: { select: { email: true, firstName: true, lastName: true } } },
       });
 
-      this.emailService.sendGiftCardValidated({
-        ...activated,
-        theme: activated.theme ?? 'red',
-      }).catch(() => {});
+      this.emailService
+        .sendGiftCardValidated({
+          ...activated,
+          theme: activated.theme ?? 'red',
+        })
+        .catch(() => {});
 
       return { card: activated, status: 'success' };
     }
 
-    if (verification.status === 'failed' || verification.status === 'abandoned') {
+    if (verification.status === 'failed') {
       await this.prisma.giftCard.update({
         where: { id: card.id },
         data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Paiement échoué' },
@@ -134,14 +141,12 @@ export class GiftCardsService {
     return { card, status: 'pending' };
   }
 
-  /** Appelé depuis le webhook Paystack pour activer une carte */
-  async activateByPaystack(reference: string) {
+  async activateByPaymentReference(reference: string) {
     const card = await this.prisma.giftCard.findFirst({
-      where: { paystackReference: reference },
+      where: { paymentReference: reference },
       include: { user: { select: { email: true, firstName: true, lastName: true } } },
     });
     if (!card) return null;
-
     if (card.status !== 'PENDING_PAYMENT') return card;
 
     const activated = await this.prisma.giftCard.update({
@@ -150,34 +155,45 @@ export class GiftCardsService {
       include: { user: { select: { email: true, firstName: true, lastName: true } } },
     });
 
-    this.emailService.sendGiftCardValidated({
-      ...activated,
-      theme: activated.theme ?? 'red',
-    }).catch(() => {});
+    this.emailService
+      .sendGiftCardValidated({
+        ...activated,
+        theme: activated.theme ?? 'red',
+      })
+      .catch(() => {});
 
     return activated;
   }
 
-  /** Annule une carte PENDING_PAYMENT suite à un paiement échoué (webhook) */
-  async cancelByPaystack(reference: string) {
-    const card = await this.prisma.giftCard.findFirst({ where: { paystackReference: reference } });
+  async cancelByPaymentReference(reference: string) {
+    const card = await this.prisma.giftCard.findFirst({ where: { paymentReference: reference } });
     if (!card || card.status !== 'PENDING_PAYMENT') return;
 
     await this.prisma.giftCard.update({
       where: { id: card.id },
-      data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Paiement échoué (Paystack)' },
+      data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Paiement échoué (GeniusPay)' },
     });
   }
 
-  // ─── Achat groupé (particulier ou entreprise) ─────────────────────────────
+  async activateByEntityId(cardId: string) {
+    const card = await this.prisma.giftCard.findUnique({ where: { id: cardId } });
+    if (!card?.paymentReference) return null;
+    return this.activateByPaymentReference(card.paymentReference);
+  }
 
-  /** Initialise le paiement Paystack pour un lot de N cartes cadeaux (montant unique par carte) */
+  async cancelByEntityId(cardId: string) {
+    const card = await this.prisma.giftCard.findUnique({ where: { id: cardId } });
+    if (!card?.paymentReference) return;
+    return this.cancelByPaymentReference(card.paymentReference);
+  }
+
+  // ─── Achat groupé ─────────────────────────────────────────────────────────
+
   async initiateBatchPayment(dto: CreateGiftCardBatchDto, userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Utilisateur introuvable');
 
     const totalAmount = dto.quantity * dto.unitAmount;
-    const paystackReference = `GCB-${uuidv4()}`;
 
     const batch = await this.prisma.giftCardBatch.create({
       data: {
@@ -188,7 +204,6 @@ export class GiftCardsService {
         totalAmount,
         userId,
         status: 'PENDING_PAYMENT',
-        paystackReference,
       },
     });
 
@@ -196,27 +211,37 @@ export class GiftCardsService {
     const locale = this.configService.get<string>('WEB_APP_DEFAULT_LOCALE') || 'fr';
     const callbackUrl = `${webAppUrl}/${locale}/payment/callback?giftCardBatchId=${batch.id}`;
 
-    const paystack = await this.paystackService.initializeTransaction({
-      email: user.email,
+    const payment = await this.geniusPayService.createPayment({
       amount: totalAmount,
-      reference: paystackReference,
-      callback_url: callbackUrl,
+      description: `Lot de ${dto.quantity} cartes cadeaux Kadoor`,
+      customer: {
+        email: user.email,
+        firstName: user.firstName || undefined,
+        lastName: user.lastName || undefined,
+      },
+      success_url: callbackUrl,
+      error_url: callbackUrl,
       metadata: {
-        type: 'GIFT_CARD_BATCH',
-        batchId: batch.id,
+        paymentType: 'gift_card_batch',
+        entityId: batch.id,
+        userId,
         quantity: dto.quantity,
         unitAmount: dto.unitAmount,
       },
     });
 
+    const updated = await this.prisma.giftCardBatch.update({
+      where: { id: batch.id },
+      data: { paymentReference: payment.reference },
+    });
+
     return {
-      batch,
-      authorizationUrl: paystack.authorization_url,
-      reference: paystackReference,
+      batch: updated,
+      authorizationUrl: payment.checkout_url,
+      reference: payment.reference,
     };
   }
 
-  /** Génère les N cartes du lot une fois le paiement confirmé — idempotent */
   private async issueBatchCards(batchId: string) {
     const batch = await this.prisma.giftCardBatch.findUnique({
       where: { id: batchId },
@@ -261,30 +286,32 @@ export class GiftCardsService {
     return activated;
   }
 
-  /** Vérifie le paiement Paystack et émet les cartes du lot */
   async verifyBatchPayment(batchId: string, reference?: string) {
     const batch = await this.prisma.giftCardBatch.findUnique({ where: { id: batchId } });
     if (!batch) throw new NotFoundException('Achat groupé introuvable');
 
     if (batch.status === 'ACTIVE') {
-      const full = await this.prisma.giftCardBatch.findUnique({ where: { id: batchId }, include: { giftCards: true } });
+      const full = await this.prisma.giftCardBatch.findUnique({
+        where: { id: batchId },
+        include: { giftCards: true },
+      });
       return { batch: full, status: 'success' };
     }
     if (batch.status === 'CANCELLED') {
       return { batch, status: 'failed' };
     }
 
-    const ref = reference || batch.paystackReference;
-    if (!ref) throw new BadRequestException('Référence Paystack manquante');
+    const ref = reference || batch.paymentReference;
+    if (!ref) throw new BadRequestException('Référence de paiement manquante');
 
-    const verification = await this.paystackService.verifyTransaction(ref);
+    const verification = await this.geniusPayService.getPayment(ref);
 
     if (verification.status === 'success') {
       const activated = await this.issueBatchCards(batch.id);
       return { batch: activated, status: 'success' };
     }
 
-    if (verification.status === 'failed' || verification.status === 'abandoned') {
+    if (verification.status === 'failed') {
       await this.prisma.giftCardBatch.update({
         where: { id: batch.id },
         data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Paiement échoué' },
@@ -295,23 +322,33 @@ export class GiftCardsService {
     return { batch, status: 'pending' };
   }
 
-  /** Appelé depuis le webhook Paystack pour émettre les cartes d'un lot */
-  async activateBatchByPaystack(reference: string) {
-    const batch = await this.prisma.giftCardBatch.findFirst({ where: { paystackReference: reference } });
+  async activateBatchByPaymentReference(reference: string) {
+    const batch = await this.prisma.giftCardBatch.findFirst({ where: { paymentReference: reference } });
     if (!batch) return null;
     if (batch.status !== 'PENDING_PAYMENT') return batch;
     return this.issueBatchCards(batch.id);
   }
 
-  /** Annule un lot PENDING_PAYMENT suite à un paiement échoué (webhook) */
-  async cancelBatchByPaystack(reference: string) {
-    const batch = await this.prisma.giftCardBatch.findFirst({ where: { paystackReference: reference } });
+  async cancelBatchByPaymentReference(reference: string) {
+    const batch = await this.prisma.giftCardBatch.findFirst({ where: { paymentReference: reference } });
     if (!batch || batch.status !== 'PENDING_PAYMENT') return;
 
     await this.prisma.giftCardBatch.update({
       where: { id: batch.id },
-      data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Paiement échoué (Paystack)' },
+      data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Paiement échoué (GeniusPay)' },
     });
+  }
+
+  async activateBatchByEntityId(batchId: string) {
+    const batch = await this.prisma.giftCardBatch.findUnique({ where: { id: batchId } });
+    if (!batch?.paymentReference) return null;
+    return this.activateBatchByPaymentReference(batch.paymentReference);
+  }
+
+  async cancelBatchByEntityId(batchId: string) {
+    const batch = await this.prisma.giftCardBatch.findUnique({ where: { id: batchId } });
+    if (!batch?.paymentReference) return;
+    return this.cancelBatchByPaymentReference(batch.paymentReference);
   }
 
   /** Mes achats groupés — vue client */

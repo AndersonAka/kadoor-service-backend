@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, ConflictException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { VehicleTypePricing } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -8,11 +8,9 @@ import { VehiclesService } from '../vehicles/vehicles.service';
 import { ApartmentsService } from '../apartments/apartments.service';
 import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { PaystackService } from './paystack.service';
+import { GeniusPayService } from '../payments/providers/geniuspay/geniuspay.service';
 import { SettingsService } from '../settings/settings.service';
 import { PromoCodesService } from '../promo-codes/promo-codes.service';
-import { GiftCardsService } from '../gift-cards/gift-cards.service';
-import { v4 as uuidv4 } from 'uuid';
 
 /** Clés SiteSettings — forfaits kilométriques */
 const MILEAGE_TIER1_KM_KEY   = 'mileage_tier1_limit';          // km/jour inclus (défaut 100)
@@ -30,12 +28,10 @@ export class ReservationsService {
     private apartmentsService: ApartmentsService,
     private emailService: EmailService,
     private notificationsService: NotificationsService,
-    private paystackService: PaystackService,
+    private geniusPayService: GeniusPayService,
     private configService: ConfigService,
     private settingsService: SettingsService,
     private promoCodesService: PromoCodesService,
-    @Inject(forwardRef(() => GiftCardsService))
-    private giftCardsService: GiftCardsService,
   ) {}
 
   /**
@@ -356,7 +352,7 @@ export class ReservationsService {
     return this.updateStatus(id, 'CANCELLED');
   }
 
-  // ─── Paystack Payment Methods ──────────────────────────────────────────
+  // ─── GeniusPay Payment Methods ─────────────────────────────────────────
 
   /**
    * Lit un paramètre numérique dans SiteSettings.
@@ -466,19 +462,19 @@ export class ReservationsService {
 
   /**
    * Passe la réservation de PENDING à CONFIRMED de façon atomique.
-   * Évite les doubles envois d'email lorsque verifyPayment et le webhook Paystack
-   * (ou des retries webhook) arrivent en concurrence.
+   * Évite les doubles envois d'email lorsque verifyPayment et le webhook
+   * (ou des retries) arrivent en concurrence.
    */
   private async tryTransitionBookingToConfirmed(
     bookingId: string,
-    options?: { paystackReference?: string },
+    options?: { paymentReference?: string },
   ) {
-    const where: { id: string; status: string; paystackReference?: string } = {
+    const where: { id: string; status: string; paymentReference?: string } = {
       id: bookingId,
       status: 'PENDING',
     };
-    if (options?.paystackReference) {
-      where.paystackReference = options.paystackReference;
+    if (options?.paymentReference) {
+      where.paymentReference = options.paymentReference;
     }
 
     const updateResult = await this.prisma.booking.updateMany({
@@ -494,8 +490,26 @@ export class ReservationsService {
     return { transitioned: updateResult.count > 0, booking };
   }
 
+  private async afterBookingConfirmed(confirmed: any, bookingId: string) {
+    if (confirmed?.user?.email) {
+      this.emailService.sendReservationConfirmation(confirmed, confirmed.user.email).catch(
+        (err) => console.error('Erreur email confirmation réservation:', err),
+      );
+    }
+    if (confirmed?.promoCodeId) {
+      this.promoCodesService
+        .incrementUsage(confirmed.promoCodeId)
+        .catch((err) => console.error('[verifyPayment] Promo usage error:', err));
+    }
+    if (confirmed?.userId) {
+      this.notificationsService
+        .sendReservationConfirmation(confirmed.userId, bookingId, confirmed.vehicle ? 'vehicle' : 'apartment')
+        .catch((err) => console.error('[verifyPayment] Push notification error:', err));
+    }
+  }
+
   /**
-   * Crée une réservation de véhicule PENDING puis initie le paiement Paystack.
+   * Crée une réservation de véhicule PENDING puis initie le paiement GeniusPay.
    * Retourne { booking, paymentUrl }
    */
   async initiateVehiclePayment(
@@ -522,13 +536,11 @@ export class ReservationsService {
     const typePricing = this.requireVehicleTypePricing(vehicle.type, typePricingRow);
 
     const days = this.calculateDays(start, end);
-    const paystackReference = uuidv4();
 
     const tier = this.resolveVehicleMileageTier(dto.mileagePackage);
     const mileagePackageCost = await this.computeMileageCost(tier, days, typePricing);
     const priceWithMileage = mileagePackageCost;
 
-    // 3. Option assurance (réduction sur le prix intermédiaire + montant fixe)
     let totalPrice = priceWithMileage;
     let insurancePrice: number | null = null;
     let insuranceDiscount: number | null = null;
@@ -540,7 +552,6 @@ export class ReservationsService {
       insuranceDiscount = insurance.insuranceDiscount;
     }
 
-    // 4. Code promo (s'applique sur le total après assurance)
     const promo = await this.applyPromoCode(dto.promoCode, totalPrice, 'VEHICLE');
     totalPrice = promo.finalAmount;
 
@@ -554,7 +565,6 @@ export class ReservationsService {
         returnTime: dto.returnTime || null,
         totalPrice,
         status: 'PENDING',
-        paystackReference,
         hasInsurance: dto.hasInsurance ?? false,
         insurancePrice,
         insuranceDiscount,
@@ -571,19 +581,35 @@ export class ReservationsService {
     });
 
     const callbackUrl = this.buildCallbackUrl(booking.id);
-    const result = await this.paystackService.initializeTransaction({
-      email: userEmail,
+    const result = await this.geniusPayService.createPayment({
       amount: totalPrice,
-      reference: paystackReference,
-      callback_url: callbackUrl,
-      metadata: { bookingId: booking.id, type: 'vehicle', vehicleId },
+      description: `Réservation véhicule — ${vehicle.title || vehicleId}`,
+      customer: { email: userEmail, firstName: booking.user?.firstName || undefined, lastName: booking.user?.lastName || undefined },
+      success_url: callbackUrl,
+      error_url: callbackUrl,
+      metadata: {
+        paymentType: 'booking',
+        entityId: booking.id,
+        userId,
+        type: 'vehicle',
+        vehicleId,
+      },
     });
 
-    return { booking, paymentUrl: result.authorization_url };
+    const updated = await this.prisma.booking.update({
+      where: { id: booking.id },
+      data: { paymentReference: result.reference },
+      include: {
+        vehicle: true,
+        user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } },
+      },
+    });
+
+    return { booking: updated, paymentUrl: result.checkout_url };
   }
 
   /**
-   * Crée une réservation d'appartement PENDING puis initie le paiement Paystack.
+   * Crée une réservation d'appartement PENDING puis initie le paiement GeniusPay.
    * Retourne { booking, paymentUrl }
    */
   async initiateApartmentPayment(
@@ -610,9 +636,7 @@ export class ReservationsService {
     const nightsPrice = apartment.pricePerNight * days;
     const cleaningFee = apartment.cleaningFee ?? 0;
     let totalPrice = nightsPrice + cleaningFee;
-    const paystackReference = uuidv4();
 
-    // Code promo
     const promo = await this.applyPromoCode(dto.promoCode, totalPrice, 'APARTMENT');
     totalPrice = promo.finalAmount;
 
@@ -625,7 +649,6 @@ export class ReservationsService {
         totalPrice,
         cleaningFee: cleaningFee > 0 ? cleaningFee : null,
         status: 'PENDING',
-        paystackReference,
         promoCode: promo.promoCode,
         promoCodeId: promo.promoCodeId,
         promoDiscount: promo.promoDiscount,
@@ -637,19 +660,35 @@ export class ReservationsService {
     });
 
     const callbackUrl = this.buildCallbackUrl(booking.id);
-    const result = await this.paystackService.initializeTransaction({
-      email: userEmail,
+    const result = await this.geniusPayService.createPayment({
       amount: totalPrice,
-      reference: paystackReference,
-      callback_url: callbackUrl,
-      metadata: { bookingId: booking.id, type: 'apartment', apartmentId },
+      description: `Réservation logement — ${apartment.title || apartmentId}`,
+      customer: { email: userEmail, firstName: booking.user?.firstName || undefined, lastName: booking.user?.lastName || undefined },
+      success_url: callbackUrl,
+      error_url: callbackUrl,
+      metadata: {
+        paymentType: 'booking',
+        entityId: booking.id,
+        userId,
+        type: 'apartment',
+        apartmentId,
+      },
     });
 
-    return { booking, paymentUrl: result.authorization_url };
+    const updated = await this.prisma.booking.update({
+      where: { id: booking.id },
+      data: { paymentReference: result.reference },
+      include: {
+        apartment: true,
+        user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } },
+      },
+    });
+
+    return { booking: updated, paymentUrl: result.checkout_url };
   }
 
   /**
-   * Vérifie le paiement Paystack par référence et confirme la réservation.
+   * Vérifie le paiement GeniusPay et confirme la réservation.
    */
   async verifyPayment(bookingId: string) {
     const booking = await this.prisma.booking.findUnique({ where: { id: bookingId } });
@@ -663,124 +702,68 @@ export class ReservationsService {
       return { booking: full, status: 'success', message: 'Paiement déjà confirmé' };
     }
 
-    if (!booking.paystackReference) {
+    if (!booking.paymentReference) {
       throw new BadRequestException('Aucune référence de paiement associée');
     }
 
-    const verification = await this.paystackService.verifyTransaction(booking.paystackReference);
+    const verification = await this.geniusPayService.getPayment(booking.paymentReference);
 
     if (verification.status === 'success') {
       const { transitioned, booking: confirmed } = await this.tryTransitionBookingToConfirmed(bookingId);
       if (!confirmed) throw new NotFoundException('Réservation non trouvée');
 
-      // Un seul flux (verifyPayment ou webhook) envoie l'email après la transition atomique
-      // (pas d'email de paiement : Paystack notifie déjà le client)
-      if (transitioned && confirmed.user?.email) {
-        this.emailService.sendReservationConfirmation(confirmed, confirmed.user.email).catch(
-          (err) => console.error('Erreur email confirmation réservation:', err),
-        );
-
-        // Incrémente l'utilisation du code promo (une seule fois)
-        if (confirmed.promoCodeId) {
-          this.promoCodesService
-            .incrementUsage(confirmed.promoCodeId)
-            .catch((err) => console.error('[verifyPayment] Promo usage error:', err));
-        }
-
-        this.notificationsService
-          .sendReservationConfirmation(confirmed.userId, bookingId, confirmed.vehicle ? 'vehicle' : 'apartment')
-          .catch((err) => console.error('[verifyPayment] Push notification error:', err));
+      if (transitioned) {
+        await this.afterBookingConfirmed(confirmed, bookingId);
       }
 
-      return { booking: confirmed, status: 'success', paystackStatus: verification.status };
+      return { booking: confirmed, status: 'success', paymentStatus: verification.status };
     }
 
-    if (verification.status === 'failed' || verification.status === 'abandoned') {
+    if (verification.status === 'failed') {
       await this.prisma.booking.update({ where: { id: bookingId }, data: { status: 'CANCELLED' } });
-      return { booking, status: 'failed', paystackStatus: verification.status };
+      return { booking, status: 'failed', paymentStatus: verification.status };
     }
 
-    return { booking, status: 'pending', paystackStatus: verification.status };
+    return { booking, status: 'pending', paymentStatus: verification.status };
   }
 
   /**
-   * Traite le webhook Paystack (charge.success / charge.failed)
+   * Activation / annulation depuis le webhook GeniusPay (après re-vérification API).
    */
-  async handleWebhook(signature: string, rawBody: string, body: any) {
-    const isValid = this.paystackService.validateWebhookSignature(signature, rawBody);
-    if (!isValid) return { status: 'error', message: 'Invalid signature' };
+  async applyPaymentResultFromWebhook(bookingId: string, success: boolean) {
+    const existing = await this.prisma.booking.findUnique({ where: { id: bookingId } });
+    if (!existing) return { status: 'ok', message: 'Booking not found' };
+    if (existing.status === 'CONFIRMED' || existing.status === 'CANCELLED') {
+      return { status: 'ok', message: 'Already processed' };
+    }
 
-    if (body.event === 'charge.success' || body.event === 'charge.failed') {
-      const reference = body.data?.reference;
-      if (!reference) return { status: 'error', message: 'No reference' };
-
-      // Vérifier d'abord si c'est un achat groupé de cartes cadeaux (référence GCB-)
-      if (reference.startsWith('GCB-')) {
-        if (body.event === 'charge.success') {
-          await this.giftCardsService.activateBatchByPaystack(reference).catch(() => {});
-        } else {
-          await this.giftCardsService.cancelBatchByPaystack(reference).catch(() => {});
-        }
-        return { status: 'ok' };
+    if (success) {
+      const { transitioned, booking: confirmed } = await this.tryTransitionBookingToConfirmed(existing.id, {
+        paymentReference: existing.paymentReference || undefined,
+      });
+      if (transitioned && confirmed) {
+        await this.afterBookingConfirmed(confirmed, confirmed.id);
       }
-
-      // Vérifier ensuite si c'est une carte cadeau unitaire (référence GC-)
-      if (reference.startsWith('GC-')) {
-        if (body.event === 'charge.success') {
-          await this.giftCardsService.activateByPaystack(reference).catch(() => {});
-        } else {
-          await this.giftCardsService.cancelByPaystack(reference).catch(() => {});
-        }
-        return { status: 'ok' };
-      }
-
-      const existing = await this.prisma.booking.findFirst({ where: { paystackReference: reference } });
-      if (!existing) return { status: 'ok', message: 'Booking not found' };
-
-      if (existing.status === 'CONFIRMED' || existing.status === 'CANCELLED') {
+    } else {
+      const cancelResult = await this.prisma.booking.updateMany({
+        where: { id: existing.id, status: 'PENDING' },
+        data: { status: 'CANCELLED' },
+      });
+      if (cancelResult.count === 0) {
         return { status: 'ok', message: 'Already processed' };
       }
-
-      if (body.event === 'charge.success') {
-        const { transitioned, booking: confirmed } = await this.tryTransitionBookingToConfirmed(existing.id, {
-          paystackReference: reference,
-        });
-        if (transitioned && confirmed?.user?.email) {
-          this.emailService
-            .sendReservationConfirmation(confirmed, confirmed.user.email)
-            .catch((err) => console.error('[Webhook] Reservation confirmation email error:', err));
-
-          if (confirmed.promoCodeId) {
-            this.promoCodesService
-              .incrementUsage(confirmed.promoCodeId)
-              .catch((err) => console.error('[Webhook] Promo usage error:', err));
-          }
-
-          this.notificationsService
-            .sendReservationConfirmation(confirmed.userId, confirmed.id, confirmed.vehicle ? 'vehicle' : 'apartment')
-            .catch((err) => console.error('[Webhook] Push notification error:', err));
-        }
-      } else {
-        const cancelResult = await this.prisma.booking.updateMany({
-          where: { id: existing.id, status: 'PENDING', paystackReference: reference },
-          data: { status: 'CANCELLED' },
-        });
-        if (cancelResult.count === 0) {
-          return { status: 'ok', message: 'Already processed' };
-        }
-        const cancelled = await this.prisma.booking.findUnique({
-          where: { id: existing.id },
-          include: {
-            vehicle: true,
-            apartment: true,
-            user: { select: { id: true, email: true, firstName: true, lastName: true } },
-          },
-        });
-        if (cancelled?.user?.email) {
-          this.emailService
-            .sendCancellationEmail(cancelled, cancelled.user.email)
-            .catch((err) => console.error('[Webhook] Cancellation email error:', err));
-        }
+      const cancelled = await this.prisma.booking.findUnique({
+        where: { id: existing.id },
+        include: {
+          vehicle: true,
+          apartment: true,
+          user: { select: { id: true, email: true, firstName: true, lastName: true } },
+        },
+      });
+      if (cancelled?.user?.email) {
+        this.emailService
+          .sendCancellationEmail(cancelled, cancelled.user.email)
+          .catch((err) => console.error('[Webhook] Cancellation email error:', err));
       }
     }
 

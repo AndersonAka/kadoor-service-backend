@@ -232,7 +232,7 @@ model Booking {
   returnTime        String?  // Heure de restitution (HH:MM)
   totalPrice        Float
   status            String   @default("PENDING") // PENDING, CONFIRMED, CANCELLED, COMPLETED
-  paystackReference String?  // UUID reference used for Paystack payment tracking
+  paymentReference String?  // Référence GeniusPay (MTX-…)
 
   // Option assurance supplémentaire (véhicule uniquement)
   hasInsurance      Boolean  @default(false)
@@ -282,7 +282,7 @@ model Invoice {
   taxAmount         Float       @default(0)
   totalAmount       Float
   currency          String      @default("FCFA")
-  paystackReference String?
+  paymentReference  String?
   sentAt            DateTime?
   paidAt            DateTime?
   internalNote      String?
@@ -633,7 +633,7 @@ model GiftCard {
   validUntil DateTime
 
   // Paiement
-  paystackReference String?
+  paymentReference String?
 
   // Acheteur
   userId String
@@ -672,7 +672,7 @@ model GiftCardBatch {
   totalAmount Float
 
   // Paiement
-  paystackReference String? @unique
+  paymentReference String? @unique
 
   // Acheteur — seul destinataire des cartes du lot
   userId String

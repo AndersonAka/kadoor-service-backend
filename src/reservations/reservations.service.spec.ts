@@ -4,7 +4,7 @@ import { ReservationsService } from './reservations.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { PaystackService } from './paystack.service';
+import { GeniusPayService } from '../payments/providers/geniuspay/geniuspay.service';
 import { VehiclesService } from '../vehicles/vehicles.service';
 import { ApartmentsService } from '../apartments/apartments.service';
 import { SettingsService } from '../settings/settings.service';
@@ -13,8 +13,6 @@ import { NotFoundException } from '@nestjs/common';
 
 describe('ReservationsService', () => {
   let service: ReservationsService;
-  let prismaService: PrismaService;
-  let emailService: EmailService;
 
   const mockPrismaService = {
     booking: {
@@ -40,9 +38,9 @@ describe('ReservationsService', () => {
     sendReservationConfirmation: jest.fn().mockResolvedValue(undefined),
   };
 
-  const mockPaystackService = {
-    initializeTransaction: jest.fn(),
-    verifyTransaction: jest.fn(),
+  const mockGeniusPayService = {
+    createPayment: jest.fn(),
+    getPayment: jest.fn(),
   };
 
   const mockVehiclesService = {
@@ -56,15 +54,17 @@ describe('ReservationsService', () => {
   const mockConfigService = {
     get: jest.fn((key: string) => {
       const config: Record<string, string> = {
-        'PAYSTACK_SECRET_KEY': 'test-key',
-        'FRONTEND_URL': 'http://localhost:3000',
+        GENIUSPAY_API_KEY: 'pk_sandbox_test',
+        GENIUSPAY_API_SECRET: 'sk_sandbox_test',
+        WEB_APP_URL: 'http://localhost:3000',
+        WEB_APP_DEFAULT_LOCALE: 'fr',
       };
       return config[key];
     }),
   };
 
   const mockSettingsService = {
-    findByKey: jest.fn().mockResolvedValue(null), // retourne null → valeurs par défaut utilisées
+    findByKey: jest.fn().mockResolvedValue(null),
   };
 
   const mockPromoCodesService = {
@@ -76,50 +76,19 @@ describe('ReservationsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ReservationsService,
-        {
-          provide: PrismaService,
-          useValue: mockPrismaService,
-        },
-        {
-          provide: VehiclesService,
-          useValue: mockVehiclesService,
-        },
-        {
-          provide: ApartmentsService,
-          useValue: mockApartmentsService,
-        },
-        {
-          provide: EmailService,
-          useValue: mockEmailService,
-        },
-        {
-          provide: NotificationsService,
-          useValue: mockNotificationsService,
-        },
-        {
-          provide: PaystackService,
-          useValue: mockPaystackService,
-        },
-        {
-          provide: ConfigService,
-          useValue: mockConfigService,
-        },
-        {
-          provide: SettingsService,
-          useValue: mockSettingsService,
-        },
-        {
-          provide: PromoCodesService,
-          useValue: mockPromoCodesService,
-        },
+        { provide: PrismaService, useValue: mockPrismaService },
+        { provide: VehiclesService, useValue: mockVehiclesService },
+        { provide: ApartmentsService, useValue: mockApartmentsService },
+        { provide: EmailService, useValue: mockEmailService },
+        { provide: NotificationsService, useValue: mockNotificationsService },
+        { provide: GeniusPayService, useValue: mockGeniusPayService },
+        { provide: ConfigService, useValue: mockConfigService },
+        { provide: SettingsService, useValue: mockSettingsService },
+        { provide: PromoCodesService, useValue: mockPromoCodesService },
       ],
     }).compile();
 
     service = module.get<ReservationsService>(ReservationsService);
-    prismaService = module.get<PrismaService>(PrismaService);
-    emailService = module.get<EmailService>(EmailService);
-
-    // Reset all mocks before each test
     jest.clearAllMocks();
   });
 
@@ -176,7 +145,7 @@ describe('ReservationsService', () => {
       const mockBooking = {
         id: 'booking-123',
         status: 'PENDING',
-        paystackReference: 'ref-123',
+        paymentReference: 'MTX-123',
         userId: 'user-1',
       };
 
@@ -192,7 +161,7 @@ describe('ReservationsService', () => {
         .mockResolvedValueOnce(mockBooking)
         .mockResolvedValueOnce(mockConfirmedBooking);
       mockPrismaService.booking.updateMany.mockResolvedValue({ count: 1 });
-      mockPaystackService.verifyTransaction.mockResolvedValue({ status: 'success' });
+      mockGeniusPayService.getPayment.mockResolvedValue({ status: 'success' });
 
       const result = await service.verifyPayment('booking-123');
 
@@ -225,7 +194,7 @@ describe('ReservationsService', () => {
 
       expect(result.status).toBe('success');
       expect(result.message).toBe('Paiement déjà confirmé');
-      expect(mockPaystackService.verifyTransaction).not.toHaveBeenCalled();
+      expect(mockGeniusPayService.getPayment).not.toHaveBeenCalled();
     });
   });
 });
