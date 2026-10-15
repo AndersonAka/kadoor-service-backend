@@ -54,4 +54,13 @@ export class CreatePromoCodeDto {
   @IsOptional()
   @IsIn(['ALL', 'VEHICLE', 'APARTMENT'])
   appliesTo?: 'ALL' | 'VEHICLE' | 'APARTMENT';
+
+  @IsOptional()
+  @IsString()
+  assignedUserId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxUsesPerUser?: number;
 }

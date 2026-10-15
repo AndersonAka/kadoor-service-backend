@@ -30,6 +30,7 @@ import { MerchantModule } from './merchant/merchant.module';
 import { RentalPartnersModule } from './rental-partners/rental-partners.module';
 import { PaymentsModule } from './payments/payments.module';
 import { AuditModule } from './audit/audit.module';
+import { RecommendationsModule } from './recommendations/recommendations.module';
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { AuditModule } from './audit/audit.module';
     RentalPartnersModule,
     PaymentsModule,
     AuditModule,
+    RecommendationsModule,
   ],
   controllers: [AppController],
   providers: [

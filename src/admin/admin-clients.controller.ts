@@ -1,5 +1,13 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminQueryDto } from './dto/admin-query.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -7,6 +15,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { PermissionsGuard } from '../auth/permissions.guard';
 import { RequirePermissions } from '../auth/permissions.decorator';
+import { AdminClientsService } from './admin-clients.service';
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -15,7 +24,33 @@ import { RequirePermissions } from '../auth/permissions.decorator';
 @RequirePermissions('clients')
 @Controller('admin/clients')
 export class AdminClientsController {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private clientsService: AdminClientsService,
+  ) {}
+
+  @Get('ranking')
+  @ApiOperation({ summary: 'Classement / segments clients (score + tiers)' })
+  @ApiQuery({ name: 'period', required: false, description: '12m | 6m | lifetime' })
+  @ApiQuery({ name: 'sort', required: false, description: 'score | revenue | bookings | recency' })
+  @ApiQuery({ name: 'tier', required: false })
+  async ranking(
+    @Query('period') period?: string,
+    @Query('sort') sort?: string,
+    @Query('tier') tier?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.clientsService.getRanking({
+      period,
+      sort,
+      tier,
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 20,
+      search,
+    });
+  }
 
   @Get()
   @ApiOperation({ summary: 'Récupérer la liste des clients' })
@@ -23,7 +58,7 @@ export class AdminClientsController {
   async findAll(@Query() query: AdminQueryDto) {
     const { page = 1, limit = 10, search, sortBy = 'createdAt', sortOrder = 'desc' } = query;
 
-    const where: any = {};
+    const where: any = { role: 'USER' };
     if (search) {
       where.OR = [
         { email: { contains: search, mode: 'insensitive' } },
@@ -119,6 +154,10 @@ export class AdminClientsController {
             createdAt: 'desc',
           },
         },
+        assignedPromoCodes: {
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+        },
       },
     });
 
@@ -126,13 +165,13 @@ export class AdminClientsController {
       throw new Error('Client non trouvé');
     }
 
-    // Calculer les statistiques du client
     const totalSpent = client.bookings
       .filter((b) => b.status === 'CONFIRMED' || b.status === 'COMPLETED')
       .reduce((sum, b) => sum + b.totalPrice, 0);
 
     const bookingsCount = client.bookings.length;
     const completedBookings = client.bookings.filter((b) => b.status === 'COMPLETED').length;
+    const segment = await this.clientsService.getClientSegment(id);
 
     return {
       ...client,
@@ -144,6 +183,7 @@ export class AdminClientsController {
           ? client.reviews.reduce((sum, r) => sum + r.rating, 0) / client.reviews.length
           : 0,
       },
+      segment,
     };
   }
 
@@ -198,5 +238,27 @@ export class AdminClientsController {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  @Get(':id/promo-codes')
+  @ApiOperation({ summary: 'Codes promo assignés à ce client' })
+  async listPromoCodes(@Param('id') id: string) {
+    return this.clientsService.listAssignedPromos(id);
+  }
+
+  @Post(':id/promo-codes')
+  @ApiOperation({ summary: 'Offrir un code promo nominatif à ce client' })
+  async offerPromo(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      discountType?: 'PERCENT' | 'FIXED';
+      discountValue?: number;
+      appliesTo?: 'ALL' | 'VEHICLE' | 'APARTMENT';
+      validDays?: number;
+      description?: string;
+    },
+  ) {
+    return this.clientsService.offerPromo(id, body || {});
   }
 }

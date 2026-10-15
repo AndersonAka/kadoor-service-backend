@@ -72,12 +72,22 @@ export class PromoCodesService {
     rawCode: string,
     amount: number,
     itemType?: 'VEHICLE' | 'APARTMENT',
+    userId?: string | null,
   ): Promise<PromoValidationResult> {
     const code = this.normalize(rawCode);
     const promo = await this.prisma.promoCode.findUnique({ where: { code } });
 
     if (!promo) return { valid: false, reason: 'Code promo introuvable' };
     if (!promo.isActive) return { valid: false, reason: 'Code promo désactivé' };
+
+    if (promo.assignedUserId) {
+      if (!userId) {
+        return { valid: false, reason: 'Connectez-vous pour utiliser ce code personnel' };
+      }
+      if (userId !== promo.assignedUserId) {
+        return { valid: false, reason: 'Ce code promo est réservé à un autre client' };
+      }
+    }
 
     const tz = this.getPromoValidityTimeZone();
     const todayCal = this.calendarDateInZone(new Date(), tz);
@@ -162,13 +172,28 @@ export class PromoCodesService {
         validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
         isActive: dto.isActive ?? true,
         appliesTo: dto.appliesTo ?? 'ALL',
+        assignedUserId: dto.assignedUserId ?? null,
+        maxUsesPerUser: dto.maxUsesPerUser ?? null,
+      },
+      include: {
+        assignedUser: {
+          select: { id: true, email: true, firstName: true, lastName: true },
+        },
       },
     });
   }
 
-  async findAll(params: { isActive?: boolean } = {}) {
+  async findAll(params: { isActive?: boolean; assignedOnly?: boolean } = {}) {
     return this.prisma.promoCode.findMany({
-      where: params.isActive != null ? { isActive: params.isActive } : {},
+      where: {
+        ...(params.isActive != null ? { isActive: params.isActive } : {}),
+        ...(params.assignedOnly ? { assignedUserId: { not: null } } : {}),
+      },
+      include: {
+        assignedUser: {
+          select: { id: true, email: true, firstName: true, lastName: true },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }

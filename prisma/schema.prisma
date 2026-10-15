@@ -119,6 +119,7 @@ model User {
   createdPartners Partner[]    @relation("PartnerCreatedBy")
   giftCards       GiftCard[]
   giftCardBatches GiftCardBatch[]
+  assignedPromoCodes PromoCode[] @relation("PromoCodeAssignedUser")
 }
 
 /// Tarification partagée par type de véhicule (location + forfaits km journaliers + assurance)
@@ -429,10 +430,17 @@ model PromoCode {
   validUntil     DateTime?
   isActive       Boolean  @default(true)
   appliesTo      String   @default("ALL")      // ALL | VEHICLE | APARTMENT
+  /// Si renseigné : code nominatif réservé à ce client uniquement
+  assignedUserId String?
+  assignedUser   User?    @relation("PromoCodeAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  /// Limite d'usages par utilisateur (utile surtout pour codes publics) ; codes assignés → souvent 1 via maxUses
+  maxUsesPerUser Int?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   bookings       Booking[]
+
+  @@index([assignedUserId])
 }
 
 model ContactMessage {

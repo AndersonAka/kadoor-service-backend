@@ -429,12 +429,13 @@ export class ReservationsService {
     code: string | undefined,
     amount: number,
     itemType: 'VEHICLE' | 'APARTMENT',
+    userId?: string,
   ): Promise<{ promoCode: string | null; promoCodeId: string | null; promoDiscount: number | null; finalAmount: number }> {
     if (!code || !code.trim()) {
       return { promoCode: null, promoCodeId: null, promoDiscount: null, finalAmount: amount };
     }
 
-    const result = await this.promoCodesService.validate(code, amount, itemType);
+    const result = await this.promoCodesService.validate(code, amount, itemType, userId);
     if (!result.valid || !result.promo) {
       throw new BadRequestException(result.reason || 'Code promo invalide');
     }
@@ -554,7 +555,7 @@ export class ReservationsService {
       insuranceDiscount = insurance.insuranceDiscount;
     }
 
-    const promo = await this.applyPromoCode(dto.promoCode, totalPrice, 'VEHICLE');
+    const promo = await this.applyPromoCode(dto.promoCode, totalPrice, 'VEHICLE', userId);
     totalPrice = promo.finalAmount;
 
     const booking = await this.prisma.booking.create({
@@ -639,7 +640,7 @@ export class ReservationsService {
     const cleaningFee = apartment.cleaningFee ?? 0;
     let totalPrice = nightsPrice + cleaningFee;
 
-    const promo = await this.applyPromoCode(dto.promoCode, totalPrice, 'APARTMENT');
+    const promo = await this.applyPromoCode(dto.promoCode, totalPrice, 'APARTMENT', userId);
     totalPrice = promo.finalAmount;
 
     const booking = await this.prisma.booking.create({

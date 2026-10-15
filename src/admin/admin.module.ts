@@ -7,11 +7,13 @@ import { AdminReservationsController } from './admin-reservations.controller';
 import { AdminClientsController } from './admin-clients.controller';
 import { AdminUsersController } from './admin-users.controller';
 import { AdminUsersService } from './admin-users.service';
+import { AdminClientsService } from './admin-clients.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { VehiclesModule } from '../vehicles/vehicles.module';
 import { ApartmentsModule } from '../apartments/apartments.module';
 import { ReservationsModule } from '../reservations/reservations.module';
 import { UsersModule } from '../users/users.module';
+import { PromoCodesModule } from '../promo-codes/promo-codes.module';
 
 @Module({
   imports: [
@@ -20,8 +22,9 @@ import { UsersModule } from '../users/users.module';
     ApartmentsModule,
     ReservationsModule,
     UsersModule,
+    PromoCodesModule,
   ],
-  providers: [AdminService, AdminUsersService],
+  providers: [AdminService, AdminUsersService, AdminClientsService],
   controllers: [
     AdminController,
     AdminVehiclesController,
@@ -30,6 +33,6 @@ import { UsersModule } from '../users/users.module';
     AdminClientsController,
     AdminUsersController,
   ],
-  exports: [AdminService, AdminUsersService],
+  exports: [AdminService, AdminUsersService, AdminClientsService],
 })
 export class AdminModule {}

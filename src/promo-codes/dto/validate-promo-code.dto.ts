@@ -12,4 +12,8 @@ export class ValidatePromoCodeDto {
   @IsOptional()
   @IsIn(['VEHICLE', 'APARTMENT'])
   itemType?: 'VEHICLE' | 'APARTMENT';
+
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }

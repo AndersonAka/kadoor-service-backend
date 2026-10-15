@@ -32,7 +32,7 @@ export class PromoCodesController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Valider un code promo (public, pour le formulaire)' })
   validate(@Body() dto: ValidatePromoCodeDto) {
-    return this.service.validate(dto.code, dto.amount, dto.itemType);
+    return this.service.validate(dto.code, dto.amount, dto.itemType, dto.userId);
   }
 
   // ─── Admin ─────────────────────────────────────────────
@@ -76,9 +76,13 @@ export class PromoCodesController {
   @RequirePermissions('promo_codes')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Lister les codes promo (admin)' })
-  findAll(@Query('active') active?: string) {
+  findAll(
+    @Query('active') active?: string,
+    @Query('assigned') assigned?: string,
+  ) {
     const isActive = active === 'true' ? true : active === 'false' ? false : undefined;
-    return this.service.findAll({ isActive });
+    const assignedOnly = assigned === 'true' || assigned === '1';
+    return this.service.findAll({ isActive, assignedOnly: assignedOnly || undefined });
   }
 
   @Get(':id')
