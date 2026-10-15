@@ -65,23 +65,29 @@ export class InAppNotificationsService {
     });
   }
 
+  /**
+   * `isGlobal` = feed staff (admin / manager / commercial), JAMAIS les clients ni partenaires.
+   * Client / marchand / loueur : uniquement les notifs avec leur `userId`.
+   */
+  private visibilityWhere(userId: string, isStaff: boolean) {
+    if (isStaff) {
+      return { OR: [{ isGlobal: true }, { userId }] };
+    }
+    return { userId, isGlobal: false };
+  }
+
   async getUserNotifications(
     userId: string,
-    isAdmin: boolean,
+    isStaff: boolean,
     options: { page: number; limit: number; unreadOnly: boolean },
   ) {
     const { page, limit, unreadOnly } = options;
     const skip = (page - 1) * limit;
 
-    const whereClause = isAdmin
-      ? {
-          OR: [{ isGlobal: true }, { userId }],
-          ...(unreadOnly && { isRead: false }),
-        }
-      : {
-          OR: [{ userId }, { isGlobal: true }],
-          ...(unreadOnly && { isRead: false }),
-        };
+    const whereClause = {
+      ...this.visibilityWhere(userId, isStaff),
+      ...(unreadOnly ? { isRead: false } : {}),
+    };
 
     const [notifications, total] = await Promise.all([
       this.prisma.notification.findMany({
@@ -104,16 +110,17 @@ export class InAppNotificationsService {
     };
   }
 
-  async getUnreadCount(userId: string, isAdmin: boolean) {
-    const whereClause = isAdmin
-      ? { OR: [{ isGlobal: true }, { userId }], isRead: false }
-      : { OR: [{ userId }, { isGlobal: true }], isRead: false };
+  async getUnreadCount(userId: string, isStaff: boolean) {
+    const whereClause = {
+      ...this.visibilityWhere(userId, isStaff),
+      isRead: false,
+    };
 
     const count = await this.prisma.notification.count({ where: whereClause });
     return { count };
   }
 
-  async markAsRead(notificationId: string, userId: string) {
+  async markAsRead(notificationId: string, userId: string, isStaff: boolean) {
     const notification = await this.prisma.notification.findUnique({
       where: { id: notificationId },
     });
@@ -122,7 +129,11 @@ export class InAppNotificationsService {
       throw new NotFoundException('Notification not found');
     }
 
-    if (notification.userId && notification.userId !== userId && !notification.isGlobal) {
+    const canAccess = notification.isGlobal
+      ? isStaff
+      : notification.userId === userId;
+
+    if (!canAccess) {
       throw new NotFoundException('Notification not found');
     }
 
@@ -132,20 +143,19 @@ export class InAppNotificationsService {
     });
   }
 
-  async markAllAsRead(userId: string, isAdmin: boolean) {
-    const whereClause = isAdmin
-      ? { OR: [{ isGlobal: true }, { userId }], isRead: false }
-      : { OR: [{ userId }, { isGlobal: true }], isRead: false };
-
+  async markAllAsRead(userId: string, isStaff: boolean) {
     await this.prisma.notification.updateMany({
-      where: whereClause,
+      where: {
+        ...this.visibilityWhere(userId, isStaff),
+        isRead: false,
+      },
       data: { isRead: true },
     });
 
     return { success: true };
   }
 
-  async deleteNotification(notificationId: string, userId: string) {
+  async deleteNotification(notificationId: string, userId: string, isStaff: boolean) {
     const notification = await this.prisma.notification.findUnique({
       where: { id: notificationId },
     });
@@ -154,7 +164,11 @@ export class InAppNotificationsService {
       throw new NotFoundException('Notification not found');
     }
 
-    if (notification.userId && notification.userId !== userId) {
+    const canAccess = notification.isGlobal
+      ? isStaff
+      : notification.userId === userId;
+
+    if (!canAccess) {
       throw new NotFoundException('Notification not found');
     }
 
@@ -162,12 +176,13 @@ export class InAppNotificationsService {
     return { success: true };
   }
 
-  async deleteAllRead(userId: string, isAdmin: boolean) {
-    const whereClause = isAdmin
-      ? { OR: [{ isGlobal: true }, { userId }], isRead: true }
-      : { OR: [{ userId }, { isGlobal: true }], isRead: true };
-
-    await this.prisma.notification.deleteMany({ where: whereClause });
+  async deleteAllRead(userId: string, isStaff: boolean) {
+    await this.prisma.notification.deleteMany({
+      where: {
+        ...this.visibilityWhere(userId, isStaff),
+        isRead: true,
+      },
+    });
     return { success: true };
   }
 

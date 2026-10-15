@@ -24,10 +24,17 @@ interface AuthenticatedRequest {
   };
 }
 
+/** Staff back-office : voient les notifs `isGlobal` (ops admin). */
+const STAFF_ROLES = new Set(['ADMIN', 'MANAGER', 'COMMERCIAL']);
+
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
 export class NotificationsController {
   constructor(private readonly notificationsService: InAppNotificationsService) {}
+
+  private isStaff(role: string) {
+    return STAFF_ROLES.has(role);
+  }
 
   @Get()
   async getUserNotifications(
@@ -37,8 +44,8 @@ export class NotificationsController {
     @Query('unreadOnly') unreadOnly: string = 'false',
   ) {
     const userId = req.user.id;
-    const isAdmin = req.user.role === 'ADMIN';
-    return this.notificationsService.getUserNotifications(userId, isAdmin, {
+    const isStaff = this.isStaff(req.user.role);
+    return this.notificationsService.getUserNotifications(userId, isStaff, {
       page: parseInt(page),
       limit: parseInt(limit),
       unreadOnly: unreadOnly === 'true',
@@ -48,40 +55,42 @@ export class NotificationsController {
   @Get('unread-count')
   async getUnreadCount(@Request() req: AuthenticatedRequest) {
     const userId = req.user.id;
-    const isAdmin = req.user.role === 'ADMIN';
-    return this.notificationsService.getUnreadCount(userId, isAdmin);
+    const isStaff = this.isStaff(req.user.role);
+    return this.notificationsService.getUnreadCount(userId, isStaff);
   }
 
   @Patch(':id/read')
   async markAsRead(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     const userId = req.user.id;
-    return this.notificationsService.markAsRead(id, userId);
+    const isStaff = this.isStaff(req.user.role);
+    return this.notificationsService.markAsRead(id, userId, isStaff);
   }
 
   @Patch('read-all')
   async markAllAsRead(@Request() req: AuthenticatedRequest) {
     const userId = req.user.id;
-    const isAdmin = req.user.role === 'ADMIN';
-    return this.notificationsService.markAllAsRead(userId, isAdmin);
+    const isStaff = this.isStaff(req.user.role);
+    return this.notificationsService.markAllAsRead(userId, isStaff);
   }
 
   @Delete(':id')
   async deleteNotification(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
     const userId = req.user.id;
-    return this.notificationsService.deleteNotification(id, userId);
+    const isStaff = this.isStaff(req.user.role);
+    return this.notificationsService.deleteNotification(id, userId, isStaff);
   }
 
   @Delete()
   async deleteAllRead(@Request() req: AuthenticatedRequest) {
     const userId = req.user.id;
-    const isAdmin = req.user.role === 'ADMIN';
-    return this.notificationsService.deleteAllRead(userId, isAdmin);
+    const isStaff = this.isStaff(req.user.role);
+    return this.notificationsService.deleteAllRead(userId, isStaff);
   }
 
-  // Admin endpoints
+  // Admin endpoints — broadcast staff (isGlobal), pas les clients
   @Post('admin/broadcast')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'MANAGER')
   async broadcastNotification(
     @Body() data: { titleFr: string; titleEn: string; messageFr: string; messageEn: string; link?: string },
   ) {
