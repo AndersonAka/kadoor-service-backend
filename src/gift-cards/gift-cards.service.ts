@@ -5,6 +5,7 @@ import { GeniusPayService } from '../payments/providers/geniuspay/geniuspay.serv
 import { ConfigService } from '@nestjs/config';
 import { CreateGiftCardDto } from './dto/create-gift-card.dto';
 import { CreateGiftCardBatchDto } from './dto/create-gift-card-batch.dto';
+import { AuditService } from '../audit/audit.service';
 
 @Injectable()
 export class GiftCardsService {
@@ -13,6 +14,7 @@ export class GiftCardsService {
     private emailService: EmailService,
     private geniusPayService: GeniusPayService,
     private configService: ConfigService,
+    private audit: AuditService,
   ) {}
 
   private generateCode(): string {
@@ -162,6 +164,16 @@ export class GiftCardsService {
       })
       .catch(() => {});
 
+    await this.audit.record({
+      action: 'gift_card.activated_by_payment',
+      entityType: 'GiftCard',
+      entityId: activated.id,
+      outcome: 'SUCCESS',
+      source: 'WEBHOOK',
+      summary: `Carte cadeau activée (${activated.code})`,
+      metadata: { reference },
+    });
+
     return activated;
   }
 
@@ -172,6 +184,15 @@ export class GiftCardsService {
     await this.prisma.giftCard.update({
       where: { id: card.id },
       data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Paiement échoué (GeniusPay)' },
+    });
+    await this.audit.record({
+      action: 'gift_card.cancelled_by_payment',
+      entityType: 'GiftCard',
+      entityId: card.id,
+      outcome: 'FAILURE',
+      source: 'WEBHOOK',
+      summary: `Carte cadeau annulée — paiement échoué (${card.code})`,
+      metadata: { reference },
     });
   }
 
@@ -326,7 +347,17 @@ export class GiftCardsService {
     const batch = await this.prisma.giftCardBatch.findFirst({ where: { paymentReference: reference } });
     if (!batch) return null;
     if (batch.status !== 'PENDING_PAYMENT') return batch;
-    return this.issueBatchCards(batch.id);
+    const issued = await this.issueBatchCards(batch.id);
+    await this.audit.record({
+      action: 'gift_card_batch.issued',
+      entityType: 'GiftCardBatch',
+      entityId: batch.id,
+      outcome: 'SUCCESS',
+      source: 'WEBHOOK',
+      summary: `Lot de ${batch.quantity} cartes cadeaux émis`,
+      metadata: { reference },
+    });
+    return issued;
   }
 
   async cancelBatchByPaymentReference(reference: string) {
@@ -336,6 +367,15 @@ export class GiftCardsService {
     await this.prisma.giftCardBatch.update({
       where: { id: batch.id },
       data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'Paiement échoué (GeniusPay)' },
+    });
+    await this.audit.record({
+      action: 'gift_card_batch.cancelled_by_payment',
+      entityType: 'GiftCardBatch',
+      entityId: batch.id,
+      outcome: 'FAILURE',
+      source: 'WEBHOOK',
+      summary: 'Lot de cartes cadeaux annulé — paiement échoué',
+      metadata: { reference },
     });
   }
 
@@ -479,9 +519,20 @@ export class GiftCardsService {
     if (!['ACTIVE', 'PENDING_PAYMENT'].includes(card.status)) {
       throw new BadRequestException('Seules les cartes actives ou en attente peuvent être annulées');
     }
-    return this.prisma.giftCard.update({
+    const updated = await this.prisma.giftCard.update({
       where: { id },
       data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason },
     });
+    await this.audit.record({
+      action: 'gift_card.admin_cancel',
+      entityType: 'GiftCard',
+      entityId: id,
+      outcome: 'SUCCESS',
+      source: 'ADMIN_UI',
+      summary: `Annulation admin carte cadeau ${card.code}`,
+      before: { status: card.status },
+      after: { status: 'CANCELLED', cancelReason: reason },
+    });
+    return updated;
   }
 }

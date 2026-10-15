@@ -7,11 +7,15 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePartnerDto } from './dto/create-partner.dto';
 import { UpdatePartnerDto } from './dto/update-partner.dto';
+import { AuditService } from '../audit/audit.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class PartnersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private audit: AuditService,
+  ) {}
 
   /**
    * Détermine le rôle applicatif du compte partenaire selon sa catégorie d'activité :
@@ -69,7 +73,7 @@ export class PartnersService {
         userId = user.id;
       }
 
-      return tx.partner.create({
+      const created = await tx.partner.create({
         data: this.normalizeDates({
           ...rest,
           beneficiaries: beneficiaries ? JSON.parse(JSON.stringify(beneficiaries)) : undefined,
@@ -82,6 +86,19 @@ export class PartnersService {
           documents: true,
         },
       });
+      return created;
+    }).then(async (created) => {
+      await this.audit.record({
+        actorId: adminId,
+        action: 'partner.create',
+        entityType: 'Partner',
+        entityId: created.id,
+        outcome: 'SUCCESS',
+        source: 'ADMIN_UI',
+        summary: `Création partenaire ${created.legalName || created.fullName || created.email}`,
+        after: { email: created.email, category: created.category, status: created.status },
+      });
+      return created;
     });
   }
 
@@ -189,12 +206,37 @@ export class PartnersService {
         data,
         include: { user: { select: { id: true, email: true, role: true } }, documents: true },
       });
+    }).then(async (updated) => {
+      await this.audit.record({
+        actorId: adminId,
+        action: dto.status ? 'partner.status_update' : 'partner.update',
+        entityType: 'Partner',
+        entityId: id,
+        outcome: 'SUCCESS',
+        source: 'ADMIN_UI',
+        summary: dto.status
+          ? `Statut partenaire → ${dto.status}`
+          : `Modification partenaire ${updated.legalName || updated.fullName || updated.email}`,
+        before: { status: partner.status },
+        after: { status: updated.status, email: updated.email },
+      });
+      return updated;
     });
   }
 
   async remove(id: string) {
-    await this.findOne(id);
-    return this.prisma.partner.delete({ where: { id } });
+    const partner = await this.findOne(id);
+    await this.prisma.partner.delete({ where: { id } });
+    await this.audit.record({
+      action: 'partner.delete',
+      entityType: 'Partner',
+      entityId: id,
+      outcome: 'SUCCESS',
+      source: 'ADMIN_UI',
+      summary: `Suppression partenaire ${partner.legalName || partner.fullName || partner.email}`,
+      before: { email: partner.email, status: partner.status },
+    });
+    return { success: true };
   }
 
   async computeRiskScore(id: string, scores: {

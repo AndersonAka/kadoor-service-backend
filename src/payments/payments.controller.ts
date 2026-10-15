@@ -15,6 +15,7 @@ import { ReservationsService } from '../reservations/reservations.service';
 import { GiftCardsService } from '../gift-cards/gift-cards.service';
 import { InvoicesService } from '../invoices/invoices.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 
 @ApiTags('payments')
 @Controller('payments')
@@ -27,6 +28,7 @@ export class PaymentsController {
     private readonly giftCardsService: GiftCardsService,
     private readonly invoicesService: InvoicesService,
     private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
   ) {}
 
   @Post('geniuspay/notify')
@@ -46,8 +48,24 @@ export class PaymentsController {
     }
 
     if (event === 'webhook.test' || body?.event === 'webhook.test') {
+      await this.audit.record({
+        action: 'payment.webhook.test',
+        entityType: 'Payment',
+        outcome: 'SUCCESS',
+        source: 'WEBHOOK',
+        summary: 'Webhook GeniusPay test reçu',
+      });
       return { status: 'ok', message: 'test received' };
     }
+
+    await this.audit.record({
+      action: 'payment.webhook.received',
+      entityType: 'Payment',
+      outcome: 'SUCCESS',
+      source: 'WEBHOOK',
+      summary: `Webhook GeniusPay reçu (${event || 'unknown'})`,
+      metadata: { event, reference: body?.data?.reference },
+    });
 
     const data = body?.data || body;
     const metadata = data?.metadata || {};
@@ -119,8 +137,36 @@ export class PaymentsController {
       } else if (paymentType === 'invoice') {
         await this.invoicesService.applyPaymentResultFromWebhook(entityId, success);
       }
+
+      await this.audit.record({
+        action: success ? 'payment.verified.success' : 'payment.verified.failed',
+        entityType:
+          paymentType === 'booking'
+            ? 'Booking'
+            : paymentType === 'gift_card'
+              ? 'GiftCard'
+              : paymentType === 'gift_card_batch'
+                ? 'GiftCardBatch'
+                : 'Invoice',
+        entityId,
+        outcome: success ? 'SUCCESS' : 'FAILURE',
+        source: 'WEBHOOK',
+        summary: success
+          ? `Paiement confirmé (${paymentType})`
+          : `Paiement échoué (${paymentType})`,
+        metadata: { paymentType, reference },
+      });
     } catch (err: any) {
       this.logger.error(`Webhook apply error (${paymentType}/${entityId}): ${err?.message || err}`);
+      await this.audit.record({
+        action: 'payment.webhook.apply_error',
+        entityType: 'Payment',
+        entityId,
+        outcome: 'FAILURE',
+        source: 'WEBHOOK',
+        summary: `Erreur application webhook: ${err?.message || err}`,
+        metadata: { paymentType, reference },
+      });
     }
 
     return { status: 'ok' };

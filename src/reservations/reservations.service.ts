@@ -11,6 +11,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { GeniusPayService } from '../payments/providers/geniuspay/geniuspay.service';
 import { SettingsService } from '../settings/settings.service';
 import { PromoCodesService } from '../promo-codes/promo-codes.service';
+import { AuditService } from '../audit/audit.service';
 
 /** Clés SiteSettings — forfaits kilométriques */
 const MILEAGE_TIER1_KM_KEY   = 'mileage_tier1_limit';          // km/jour inclus (défaut 100)
@@ -32,6 +33,7 @@ export class ReservationsService {
     private configService: ConfigService,
     private settingsService: SettingsService,
     private promoCodesService: PromoCodesService,
+    private audit: AuditService,
   ) {}
 
   /**
@@ -714,6 +716,17 @@ export class ReservationsService {
 
       if (transitioned) {
         await this.afterBookingConfirmed(confirmed, bookingId);
+        await this.audit.record({
+          action: 'booking.confirmed_by_payment',
+          entityType: 'Booking',
+          entityId: bookingId,
+          outcome: 'SUCCESS',
+          source: 'SYSTEM',
+          summary: 'Réservation confirmée après vérification paiement',
+          metadata: { reference: booking.paymentReference },
+          before: { status: 'PENDING' },
+          after: { status: 'CONFIRMED' },
+        });
       }
 
       return { booking: confirmed, status: 'success', paymentStatus: verification.status };
@@ -721,6 +734,15 @@ export class ReservationsService {
 
     if (verification.status === 'failed') {
       await this.prisma.booking.update({ where: { id: bookingId }, data: { status: 'CANCELLED' } });
+      await this.audit.record({
+        action: 'booking.cancelled_by_payment',
+        entityType: 'Booking',
+        entityId: bookingId,
+        outcome: 'FAILURE',
+        source: 'SYSTEM',
+        summary: 'Réservation annulée — paiement échoué',
+        metadata: { reference: booking.paymentReference },
+      });
       return { booking, status: 'failed', paymentStatus: verification.status };
     }
 
@@ -743,6 +765,15 @@ export class ReservationsService {
       });
       if (transitioned && confirmed) {
         await this.afterBookingConfirmed(confirmed, confirmed.id);
+        await this.audit.record({
+          action: 'booking.confirmed_by_payment',
+          entityType: 'Booking',
+          entityId: bookingId,
+          outcome: 'SUCCESS',
+          source: 'WEBHOOK',
+          summary: 'Réservation confirmée via webhook paiement',
+          metadata: { reference: existing.paymentReference },
+        });
       }
     } else {
       const cancelResult = await this.prisma.booking.updateMany({
@@ -752,6 +783,15 @@ export class ReservationsService {
       if (cancelResult.count === 0) {
         return { status: 'ok', message: 'Already processed' };
       }
+      await this.audit.record({
+        action: 'booking.cancelled_by_payment',
+        entityType: 'Booking',
+        entityId: bookingId,
+        outcome: 'FAILURE',
+        source: 'WEBHOOK',
+        summary: 'Réservation annulée via webhook paiement',
+        metadata: { reference: existing.paymentReference },
+      });
       const cancelled = await this.prisma.booking.findUnique({
         where: { id: existing.id },
         include: {

@@ -731,3 +731,37 @@ model GiftCardTransaction {
   @@index([partnerId, createdAt])
   @@index([giftCardId, createdAt])
 }
+
+/// Piste d’audit append-only (mutations admin + événements système critiques).
+/// Pas d’UPDATE/DELETE applicatif — lecture réservée ADMIN.
+model AuditLog {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+
+  actorId    String?
+  actorEmail String?
+  actorRole  String?
+
+  action     String
+  entityType String
+  entityId   String?
+  outcome    String   // SUCCESS | FAILURE | DENIED
+
+  httpMethod String?
+  route      String?
+  ipAddress  String?
+  userAgent  String?
+  requestId  String?
+
+  summary  String?
+  before   Json?
+  after    Json?
+  metadata Json?
+  source   String // ADMIN_UI | API | WEBHOOK | SYSTEM
+
+  @@index([createdAt(sort: Desc)])
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@index([action])
+  @@index([source, createdAt(sort: Desc)])
+}

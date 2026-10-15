@@ -29,6 +29,7 @@ import { GiftCardsModule } from './gift-cards/gift-cards.module';
 import { MerchantModule } from './merchant/merchant.module';
 import { RentalPartnersModule } from './rental-partners/rental-partners.module';
 import { PaymentsModule } from './payments/payments.module';
+import { AuditModule } from './audit/audit.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { PaymentsModule } from './payments/payments.module';
     MerchantModule,
     RentalPartnersModule,
     PaymentsModule,
+    AuditModule,
   ],
   controllers: [AppController],
   providers: [

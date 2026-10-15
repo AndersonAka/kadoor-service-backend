@@ -19,8 +19,10 @@ export const ADMIN_PERMISSION_KEYS = [
 
 export type AdminPermission = (typeof ADMIN_PERMISSION_KEYS)[number];
 
-/** Permission réservée à l’Admin — jamais assignable à un Commercial. */
+/** Permissions réservées à l’Admin — jamais assignables à un Commercial / Manager. */
 export const USERS_PERMISSION = 'users' as const;
+export const AUDIT_LOGS_PERMISSION = 'audit_logs' as const;
+export const ADMIN_ONLY_PERMISSIONS = [USERS_PERMISSION, AUDIT_LOGS_PERMISSION] as const;
 
 export const STAFF_ROLES = ['ADMIN', 'MANAGER', 'COMMERCIAL'] as const;
 
@@ -38,7 +40,9 @@ export function hasPermission(
 ): boolean {
   if (!user?.role) return false;
   if (user.role === 'ADMIN') return true;
-  if (user.role === 'MANAGER') return key !== USERS_PERMISSION;
+  if (user.role === 'MANAGER') {
+    return !(ADMIN_ONLY_PERMISSIONS as readonly string[]).includes(key);
+  }
   if (user.role === 'COMMERCIAL') {
     return Array.isArray(user.permissions) && user.permissions.includes(key);
   }

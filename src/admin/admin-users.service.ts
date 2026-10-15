@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { sanitizePermissions, STAFF_ROLES } from '../auth/permissions';
 import { CreateStaffUserDto, StaffAssignableRole } from './dto/create-staff-user.dto';
 import { UpdateStaffUserDto } from './dto/update-staff-user.dto';
+import { AuditService } from '../audit/audit.service';
 
 const STAFF_SELECT = {
   id: true,
@@ -29,7 +30,10 @@ const STAFF_SELECT = {
 
 @Injectable()
 export class AdminUsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   listStaff() {
     return this.prisma.user.findMany({
@@ -85,7 +89,16 @@ export class AdminUsersService {
       select: STAFF_SELECT,
     });
 
-    void actorId;
+    await this.audit.record({
+      actorId,
+      action: 'user.staff_create',
+      entityType: 'User',
+      entityId: user.id,
+      outcome: 'SUCCESS',
+      summary: `Création compte staff ${user.role} (${user.email})`,
+      after: user,
+      source: 'ADMIN_UI',
+    });
     return user;
   }
 
@@ -141,19 +154,43 @@ export class AdminUsersService {
     // Retirer les undefined pour Prisma
     Object.keys(data).forEach((k) => data[k] === undefined && delete data[k]);
 
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id },
       data,
       select: STAFF_SELECT,
     });
+
+    await this.audit.record({
+      actorId,
+      action: 'user.staff_update',
+      entityType: 'User',
+      entityId: id,
+      outcome: 'SUCCESS',
+      summary: `Modification compte staff ${updated.email}`,
+      before: current,
+      after: updated,
+      source: 'ADMIN_UI',
+    });
+
+    return updated;
   }
 
   async remove(id: string, actorId: string) {
     if (id === actorId) {
       throw new ForbiddenException('Vous ne pouvez pas supprimer votre propre compte');
     }
-    await this.getOne(id);
+    const current = await this.getOne(id);
     await this.prisma.user.delete({ where: { id } });
+    await this.audit.record({
+      actorId,
+      action: 'user.staff_delete',
+      entityType: 'User',
+      entityId: id,
+      outcome: 'SUCCESS',
+      summary: `Suppression compte staff ${current.email}`,
+      before: current,
+      source: 'ADMIN_UI',
+    });
     return { success: true };
   }
 }

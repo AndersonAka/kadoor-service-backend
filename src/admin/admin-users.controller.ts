@@ -16,6 +16,7 @@ import { Roles } from '../auth/roles.decorator';
 import { AdminUsersService } from './admin-users.service';
 import { CreateStaffUserDto } from './dto/create-staff-user.dto';
 import { UpdateStaffUserDto } from './dto/update-staff-user.dto';
+import { Audited } from '../audit/audit.decorator';
 
 @ApiTags('admin-users')
 @ApiBearerAuth()
@@ -38,12 +39,14 @@ export class AdminUsersController {
   }
 
   @Post()
+  @Audited({ action: 'user.staff_create', entityType: 'User' })
   @ApiOperation({ summary: 'Créer un compte Admin ou Commercial' })
   create(@Body() dto: CreateStaffUserDto, @Request() req: any) {
     return this.adminUsersService.create(dto, req.user.id);
   }
 
   @Patch(':id')
+  @Audited({ action: 'user.staff_update', entityType: 'User' })
   @ApiOperation({ summary: 'Modifier un compte staff' })
   update(
     @Param('id') id: string,
@@ -54,6 +57,7 @@ export class AdminUsersController {
   }
 
   @Delete(':id')
+  @Audited({ action: 'user.staff_delete', entityType: 'User' })
   @ApiOperation({ summary: 'Supprimer un compte staff' })
   remove(@Param('id') id: string, @Request() req: any) {
     return this.adminUsersService.remove(id, req.user.id);

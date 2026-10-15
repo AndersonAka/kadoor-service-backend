@@ -13,6 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { GeniusPayService } from '../payments/providers/geniuspay/geniuspay.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
+import { AuditService } from '../audit/audit.service';
 
 /**
  * Résout le chemin d'un asset (logo, etc.) que NestJS copie dans `dist/assets/`
@@ -52,6 +53,7 @@ export class InvoicesService {
     private prisma: PrismaService,
     private geniusPayService: GeniusPayService,
     private configService: ConfigService,
+    private audit: AuditService,
   ) {}
 
   private buildReference(): string {
@@ -298,18 +300,29 @@ export class InvoicesService {
   async send(id: string) {
     const invoice = await this.findOneAdmin(id);
     if (!invoice.lines.length) throw new BadRequestException('Facture vide');
-    return this.prisma.invoice.update({
+    const updated = await this.prisma.invoice.update({
       where: { id },
       data: { status: 'SENT', sentAt: new Date() },
       include: this.invoiceInclude,
     });
+    await this.audit.record({
+      action: 'invoice.send',
+      entityType: 'Invoice',
+      entityId: id,
+      outcome: 'SUCCESS',
+      source: 'ADMIN_UI',
+      summary: `Facture envoyée (${invoice.reference || id})`,
+      before: { status: invoice.status },
+      after: { status: 'SENT' },
+    });
+    return updated;
   }
 
   async markPaid(id: string) {
     const invoice = await this.findOneAdmin(id);
     if (invoice.status === 'CANCELLED') throw new BadRequestException('Facture annulée');
     const now = new Date();
-    return this.prisma.invoice.update({
+    const updated = await this.prisma.invoice.update({
       where: { id },
       data: {
         status: 'PAID',
@@ -318,16 +331,38 @@ export class InvoicesService {
       },
       include: this.invoiceInclude,
     });
+    await this.audit.record({
+      action: 'invoice.mark_paid',
+      entityType: 'Invoice',
+      entityId: id,
+      outcome: 'SUCCESS',
+      source: 'ADMIN_UI',
+      summary: `Facture marquée payée (${invoice.reference || id})`,
+      before: { status: invoice.status },
+      after: { status: 'PAID' },
+    });
+    return updated;
   }
 
   async cancel(id: string) {
     const invoice = await this.findOneAdmin(id);
     if (invoice.status === 'PAID') throw new BadRequestException('Facture déjà payée');
-    return this.prisma.invoice.update({
+    const updated = await this.prisma.invoice.update({
       where: { id },
       data: { status: 'CANCELLED' },
       include: this.invoiceInclude,
     });
+    await this.audit.record({
+      action: 'invoice.cancel',
+      entityType: 'Invoice',
+      entityId: id,
+      outcome: 'SUCCESS',
+      source: 'ADMIN_UI',
+      summary: `Facture annulée (${invoice.reference || id})`,
+      before: { status: invoice.status },
+      after: { status: 'CANCELLED' },
+    });
+    return updated;
   }
 
   async findMine(userId: string) {
@@ -429,6 +464,15 @@ export class InvoicesService {
     await this.prisma.invoice.update({
       where: { id: invoice.id },
       data: { status: 'PAID', paidAt: new Date() },
+    });
+    await this.audit.record({
+      action: 'invoice.paid_by_payment',
+      entityType: 'Invoice',
+      entityId: invoiceId,
+      outcome: 'SUCCESS',
+      source: 'WEBHOOK',
+      summary: `Facture payée via GeniusPay (${invoice.reference || invoiceId})`,
+      metadata: { reference: invoice.paymentReference },
     });
     return { status: 'ok' };
   }
