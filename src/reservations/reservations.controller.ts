@@ -144,4 +144,14 @@ export class ReservationsController {
   async verifyPayment(@Param('bookingId') bookingId: string) {
     return this.reservationsService.verifyPayment(bookingId);
   }
+
+  @Post('resume-payment/:bookingId')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Relancer le paiement GeniusPay pour une réservation PENDING' })
+  async resumePayment(@Param('bookingId') bookingId: string, @Request() req: any) {
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) throw new UnauthorizedException('Utilisateur non authentifié');
+    return this.reservationsService.resumePayment(bookingId, userId, req.user?.email);
+  }
 }

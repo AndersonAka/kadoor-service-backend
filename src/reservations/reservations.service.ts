@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { VehicleTypePricing } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -747,6 +747,81 @@ export class ReservationsService {
     }
 
     return { booking, status: 'pending', paymentStatus: verification.status };
+  }
+
+  /**
+   * Relance le checkout GeniusPay pour une réservation PENDING (paiement interrompu / expiré).
+   * Crée une nouvelle référence et met à jour paymentReference.
+   */
+  async resumePayment(bookingId: string, userId: string, userEmail: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        vehicle: true,
+        apartment: true,
+        user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } },
+      },
+    });
+
+    if (!booking) throw new NotFoundException('Réservation non trouvée');
+    if (booking.userId !== userId) {
+      throw new ForbiddenException("Vous n'avez pas accès à cette réservation");
+    }
+    if (booking.status !== 'PENDING') {
+      throw new BadRequestException('Seules les réservations en attente de paiement peuvent être réglées');
+    }
+    if (!booking.totalPrice || booking.totalPrice <= 0) {
+      throw new BadRequestException('Montant de réservation invalide');
+    }
+
+    const title = booking.vehicle?.title || booking.apartment?.title || bookingId;
+    const kind = booking.vehicleId ? 'vehicle' : 'apartment';
+    const callbackUrl = this.buildCallbackUrl(booking.id);
+
+    const result = await this.geniusPayService.createPayment({
+      amount: booking.totalPrice,
+      description: `Réservation ${kind === 'vehicle' ? 'véhicule' : 'appartement'} — ${title}`,
+      customer: {
+        email: userEmail || booking.user?.email,
+        firstName: booking.user?.firstName || undefined,
+        lastName: booking.user?.lastName || undefined,
+      },
+      success_url: callbackUrl,
+      error_url: callbackUrl,
+      metadata: {
+        paymentType: 'booking',
+        entityId: booking.id,
+        userId,
+        type: kind,
+        vehicleId: booking.vehicleId || undefined,
+        apartmentId: booking.apartmentId || undefined,
+        resume: true,
+      },
+    });
+
+    const updated = await this.prisma.booking.update({
+      where: { id: booking.id },
+      data: { paymentReference: result.reference },
+      include: {
+        vehicle: true,
+        apartment: true,
+        user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } },
+      },
+    });
+
+    await this.audit.record({
+      action: 'booking.payment_resumed',
+      entityType: 'Booking',
+      entityId: bookingId,
+      outcome: 'SUCCESS',
+      source: 'API',
+      actorId: userId,
+      actorEmail: userEmail || booking.user?.email || undefined,
+      summary: 'Checkout GeniusPay relancé pour réservation en attente',
+      metadata: { reference: result.reference },
+    });
+
+    return { booking: updated, paymentUrl: result.checkout_url };
   }
 
   /**
