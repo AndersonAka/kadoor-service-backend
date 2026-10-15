@@ -21,7 +21,12 @@ export class AdminReservationsController {
   @ApiOperation({ summary: 'Récupérer la liste des réservations (admin)' })
   @ApiResponse({ status: 200, description: 'Liste des réservations récupérée avec succès' })
   findAll(@Query() query: AdminQueryDto) {
-    return this.reservationsService.findAll(query.userId, query.status);
+    return this.reservationsService.findAll(
+      query.userId,
+      query.status,
+      query.page ?? 1,
+      query.limit ?? 100,
+    );
   }
 
   @Get(':id')

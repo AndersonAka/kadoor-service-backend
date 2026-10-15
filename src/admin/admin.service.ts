@@ -13,6 +13,8 @@ export class AdminService {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfYear = new Date(now.getFullYear(), 0, 1);
     const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
 
     // Statistiques générales
     const [
@@ -26,6 +28,11 @@ export class AdminService {
       completedBookings,
       pendingVehicles,
       pendingApartments,
+      todayBookingsCreated,
+      todayBookingsStarting,
+      todayPending,
+      todayConfirmed,
+      todayRevenue,
     ] = await Promise.all([
       this.prisma.booking.count(),
       this.prisma.vehicle.count(),
@@ -38,6 +45,35 @@ export class AdminService {
       // Biens proposés par des partenaires, en attente de validation admin
       this.prisma.vehicle.count({ where: { status: 'PENDING' } }),
       this.prisma.apartment.count({ where: { status: 'PENDING' } }),
+      // KPIs du jour
+      this.prisma.booking.count({
+        where: { createdAt: { gte: startOfDay, lt: endOfDay } },
+      }),
+      this.prisma.booking.count({
+        where: {
+          startDate: { gte: startOfDay, lt: endOfDay },
+          status: { in: ['PENDING', 'CONFIRMED', 'COMPLETED'] },
+        },
+      }),
+      this.prisma.booking.count({
+        where: {
+          status: 'PENDING',
+          createdAt: { gte: startOfDay, lt: endOfDay },
+        },
+      }),
+      this.prisma.booking.count({
+        where: {
+          status: 'CONFIRMED',
+          createdAt: { gte: startOfDay, lt: endOfDay },
+        },
+      }),
+      this.prisma.booking.aggregate({
+        where: {
+          status: { in: ['CONFIRMED', 'COMPLETED'] },
+          createdAt: { gte: startOfDay, lt: endOfDay },
+        },
+        _sum: { totalPrice: true },
+      }),
     ]);
 
     // Revenus
@@ -100,12 +136,14 @@ export class AdminService {
           select: {
             id: true,
             title: true,
+            images: true,
           },
         },
         apartment: {
           select: {
             id: true,
             title: true,
+            images: true,
           },
         },
       },
@@ -158,6 +196,13 @@ export class AdminService {
           vehicles: vehicleBookings,
           apartments: apartmentBookings,
         },
+      },
+      today: {
+        created: todayBookingsCreated,
+        starting: todayBookingsStarting,
+        pending: todayPending,
+        confirmed: todayConfirmed,
+        revenue: todayRevenue._sum.totalPrice || 0,
       },
       listings: {
         pendingVehicles,
