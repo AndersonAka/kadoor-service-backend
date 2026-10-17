@@ -33,6 +33,16 @@ export class AdminQueryDto {
   @IsEnum(BookingStatus)
   status?: BookingStatus;
 
+  /** Filtre liste réservations : vehicle | apartment */
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  /** Filtre période : today (créées) | today-start (départs) */
+  @IsOptional()
+  @IsString()
+  period?: string;
+
   @IsOptional()
   @IsString()
   sortBy?: string;

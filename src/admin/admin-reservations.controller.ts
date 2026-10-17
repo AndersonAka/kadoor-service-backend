@@ -18,15 +18,17 @@ export class AdminReservationsController {
   constructor(private readonly reservationsService: ReservationsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Récupérer la liste des réservations (admin)' })
+  @ApiOperation({ summary: 'Liste paginée des réservations (admin, 10/page)' })
   @ApiResponse({ status: 200, description: 'Liste des réservations récupérée avec succès' })
   findAll(@Query() query: AdminQueryDto) {
-    return this.reservationsService.findAll(
-      query.userId,
-      query.status,
-      query.page ?? 1,
-      query.limit ?? 100,
-    );
+    return this.reservationsService.findAllAdmin({
+      status: query.status,
+      page: query.page ?? 1,
+      limit: query.limit ?? 10,
+      search: query.search,
+      type: query.type,
+      period: query.period,
+    });
   }
 
   @Get(':id')

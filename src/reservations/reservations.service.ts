@@ -237,10 +237,40 @@ export class ReservationsService {
     return reservation;
   }
 
+  /** Bornes du jour civil (Abidjan = UTC+0). */
+  private dayBounds(ref = new Date()) {
+    const day = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Abidjan',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(ref);
+    return {
+      start: new Date(`${day}T00:00:00.000Z`),
+      end: new Date(`${day}T23:59:59.999Z`),
+    };
+  }
+
+  private bookingListInclude = {
+    vehicle: true,
+    apartment: true,
+    user: {
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+      },
+    },
+  } as const;
+
   /**
    * Récupère toutes les réservations (avec filtres et pagination)
    */
   async findAll(userId?: string, status?: string, page: number = 1, limit: number = 10) {
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(100, Math.max(1, Number(limit) || 10));
     const where: any = {};
 
     if (userId) {
@@ -251,32 +281,128 @@ export class ReservationsService {
       where.status = status;
     }
 
-    // Compter le total pour la pagination
     const total = await this.prisma.booking.count({ where });
-    const totalPages = Math.ceil(total / limit) || 1;
-    
-    // Calculer le skip pour la pagination
-    const skip = (page - 1) * limit;
+    const totalPages = Math.ceil(total / safeLimit) || 1;
+    const skip = (safePage - 1) * safeLimit;
 
     const data = await this.prisma.booking.findMany({
       where,
-      include: {
-        vehicle: true,
-        apartment: true,
-        user: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-          },
-        },
-      },
+      include: this.bookingListInclude,
       orderBy: { createdAt: 'desc' },
       skip,
-      take: limit,
+      take: safeLimit,
     });
+
+    return {
+      data,
+      meta: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages,
+      },
+    };
+  }
+
+  /**
+   * Liste admin paginée (10/page) + résumé global pour les cartes stats.
+   */
+  async findAllAdmin(query: {
+    status?: string;
+    page?: number;
+    limit?: number;
+    search?: string;
+    type?: string;
+    period?: string;
+  }) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(50, Math.max(1, Number(query.limit) || 10));
+    const where: any = {};
+
+    if (query.status) where.status = query.status;
+    if (query.type === 'vehicle') where.vehicleId = { not: null };
+    if (query.type === 'apartment') where.apartmentId = { not: null };
+
+    const { start, end } = this.dayBounds();
+    if (query.period === 'today') {
+      where.createdAt = { gte: start, lte: end };
+    } else if (query.period === 'today-start') {
+      where.startDate = { gte: start, lte: end };
+    }
+
+    const search = query.search?.trim();
+    if (search) {
+      where.OR = [
+        {
+          user: {
+            OR: [
+              { firstName: { contains: search, mode: 'insensitive' } },
+              { lastName: { contains: search, mode: 'insensitive' } },
+              { email: { contains: search, mode: 'insensitive' } },
+            ],
+          },
+        },
+        { vehicle: { title: { contains: search, mode: 'insensitive' } } },
+        { apartment: { title: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+
+    const skip = (page - 1) * limit;
+    const nowStart = start;
+
+    const overdueWhere = {
+      status: 'PENDING' as const,
+      OR: [{ startDate: { lt: nowStart } }, { endDate: { lt: nowStart } }],
+    };
+
+    const [
+      data,
+      total,
+      statusGroups,
+      todayCreated,
+      todayStarting,
+      revenueAgg,
+      overdueCount,
+      overduePending,
+    ] = await Promise.all([
+      this.prisma.booking.findMany({
+        where,
+        include: this.bookingListInclude,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.booking.count({ where }),
+      this.prisma.booking.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+      }),
+      this.prisma.booking.count({
+        where: { createdAt: { gte: start, lte: end } },
+      }),
+      this.prisma.booking.count({
+        where: { startDate: { gte: start, lte: end } },
+      }),
+      this.prisma.booking.aggregate({
+        where: { status: { in: ['CONFIRMED', 'COMPLETED'] } },
+        _sum: { totalPrice: true },
+      }),
+      this.prisma.booking.count({ where: overdueWhere }),
+      this.prisma.booking.findMany({
+        where: overdueWhere,
+        include: {
+          vehicle: { select: { title: true } },
+          apartment: { select: { title: true } },
+          user: { select: { firstName: true, lastName: true } },
+        },
+        orderBy: { startDate: 'asc' },
+        take: 5,
+      }),
+    ]);
+
+    const countByStatus = Object.fromEntries(
+      statusGroups.map((g) => [g.status, g._count._all]),
+    ) as Record<string, number>;
 
     return {
       data,
@@ -284,8 +410,25 @@ export class ReservationsService {
         total,
         page,
         limit,
-        totalPages,
+        totalPages: Math.ceil(total / limit) || 1,
       },
+      summary: {
+        total: statusGroups.reduce((s, g) => s + g._count._all, 0),
+        pending: countByStatus.PENDING || 0,
+        confirmed: countByStatus.CONFIRMED || 0,
+        cancelled: countByStatus.CANCELLED || 0,
+        completed: countByStatus.COMPLETED || 0,
+        todayCreated,
+        todayStarting,
+        totalRevenue: revenueAgg._sum.totalPrice || 0,
+        overdueCount,
+      },
+      overduePreview: overduePending.map((r) => ({
+        id: r.id,
+        user: r.user,
+        vehicle: r.vehicle,
+        apartment: r.apartment,
+      })),
     };
   }
 

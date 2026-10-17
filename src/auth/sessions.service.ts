@@ -102,9 +102,28 @@ export class SessionsService {
    * Valide la session JWT staff et met à jour lastActivityAt (throttlé).
    */
   async assertActiveAndTouch(sessionId: string, userId: string) {
-    const session = await this.prisma.userSession.findUnique({
-      where: { id: sessionId },
-    });
+    let session: {
+      id: string;
+      userId: string;
+      lastActivityAt: Date;
+      revokedAt: Date | null;
+      revokeReason: string | null;
+    } | null;
+
+    try {
+      session = await this.prisma.userSession.findUnique({
+        where: { id: sessionId },
+      });
+    } catch (err: any) {
+      // Table absente (migration non déployée) → ne pas faire tomber l'API (502)
+      if (err?.code === 'P2021' || /UserSession/i.test(String(err?.message || ''))) {
+        throw new UnauthorizedException({
+          code: 'SESSION_REQUIRED',
+          message: 'Session staff indisponible. Redéployez les migrations puis reconnectez-vous.',
+        });
+      }
+      throw err;
+    }
 
     if (!session || session.userId !== userId) {
       throw new UnauthorizedException({
