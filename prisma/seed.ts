@@ -2,7 +2,7 @@ import { PrismaClient, Role } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import * as bcrypt from 'bcrypt';
-import "dotenv/config";
+import 'dotenv/config';
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -14,163 +14,128 @@ const pool = new Pool({ connectionString: databaseUrl });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-async function main() {
-  console.log('Cleaning up existing data...');
-  // Ordre respectant les FK (réservations, favoris, incidents, etc.)
-  await prisma.booking.deleteMany();
-  await prisma.favorite.deleteMany();
-  await prisma.incident.deleteMany();
-  await prisma.review.deleteMany();
-  await prisma.notification.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.heroSlide.deleteMany();
-  await prisma.vehicle.deleteMany();
-  await prisma.vehicleTypePricing.deleteMany();
-  await prisma.apartment.deleteMany();
+/** Tarifs journaliers par type de véhicule (FCFA) — config métier, pas de listings. */
+const typePricingSeeds: Array<{
+  vehicleType: string;
+  tier1MileageDailyAmount: number;
+  tier2MileageDailyAmount: number;
+  tier3MileageDailyAmount: number;
+  overagePricePerKm: number;
+  insuranceAmount: number;
+  insuranceDiscountPercent: number;
+}> = [
+  {
+    vehicleType: 'Berline',
+    tier1MileageDailyAmount: 35000,
+    tier2MileageDailyAmount: 50000,
+    tier3MileageDailyAmount: 75000,
+    overagePricePerKm: 300,
+    insuranceAmount: 15000,
+    insuranceDiscountPercent: 5,
+  },
+  {
+    vehicleType: 'SUV',
+    tier1MileageDailyAmount: 45000,
+    tier2MileageDailyAmount: 60000,
+    tier3MileageDailyAmount: 90000,
+    overagePricePerKm: 350,
+    insuranceAmount: 18000,
+    insuranceDiscountPercent: 5,
+  },
+  {
+    vehicleType: 'Utilitaire',
+    tier1MileageDailyAmount: 28000,
+    tier2MileageDailyAmount: 40000,
+    tier3MileageDailyAmount: 62000,
+    overagePricePerKm: 280,
+    insuranceAmount: 12000,
+    insuranceDiscountPercent: 0,
+  },
+  {
+    vehicleType: 'Fourgonnette',
+    tier1MileageDailyAmount: 32000,
+    tier2MileageDailyAmount: 48000,
+    tier3MileageDailyAmount: 72000,
+    overagePricePerKm: 320,
+    insuranceAmount: 14000,
+    insuranceDiscountPercent: 0,
+  },
+  {
+    vehicleType: 'Luxe',
+    tier1MileageDailyAmount: 85000,
+    tier2MileageDailyAmount: 120000,
+    tier3MileageDailyAmount: 165000,
+    overagePricePerKm: 450,
+    insuranceAmount: 25000,
+    insuranceDiscountPercent: 8,
+  },
+  {
+    vehicleType: 'Pick-up',
+    tier1MileageDailyAmount: 38000,
+    tier2MileageDailyAmount: 55000,
+    tier3MileageDailyAmount: 82000,
+    overagePricePerKm: 340,
+    insuranceAmount: 16000,
+    insuranceDiscountPercent: 0,
+  },
+];
 
-  console.log('Seeding Admin User...');
-  const hashedPassword = await bcrypt.hash('admin123', 10);
-  const adminUser = await prisma.user.create({
-    data: {
-      email: 'admin@kadoorservice.com',
+async function upsertAdmin(params: {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+}) {
+  const hashedPassword = await bcrypt.hash(params.password, 10);
+  const user = await prisma.user.upsert({
+    where: { email: params.email },
+    update: {
       password: hashedPassword,
-      firstName: 'Admin',
-      lastName: 'KADOOR',
+      firstName: params.firstName,
+      lastName: params.lastName,
       role: Role.ADMIN,
+      isActive: true,
+      mustChangePassword: false,
     },
-  });
-  console.log(`Admin user created: ${adminUser.email} (password: admin123)`);
-
-  console.log('Seeding Commercial User...');
-  const commercialPassword = await bcrypt.hash('commercial123', 10);
-  const commercialUser = await prisma.user.create({
-    data: {
-      email: 'commercial@kadoorservice.com',
-      password: commercialPassword,
-      firstName: 'Commercial',
-      lastName: 'KADOOR',
-      role: Role.COMMERCIAL,
-      permissions: ['dashboard', 'reservations', 'clients', 'invoices', 'gift_cards'],
+    create: {
+      email: params.email,
+      password: hashedPassword,
+      firstName: params.firstName,
+      lastName: params.lastName,
+      role: Role.ADMIN,
+      isActive: true,
       mustChangePassword: false,
     },
   });
-  console.log(`Commercial user created: ${commercialUser.email} (password: commercial123)`);
+  console.log(`Admin prêt : ${user.email}`);
+  return user;
+}
 
-  console.log('Seeding HeroSlides...');
-  const slides = [
-    {
-      titleFr: "Louez votre véhicule idéal",
-      titleEn: "Rent your ideal vehicle",
-      subtitleFr: "Une large gamme de voitures pour tous vos besoins.",
-      subtitleEn: "A wide range of cars for all your needs.",
-      imageUrl: "/images/hero/hero-auto.jpg",
-      buttonTextFr: "Voir les véhicules",
-      buttonTextEn: "View vehicles",
-      buttonLink: "/vehicles",
-      order: 1,
-      isActive: true,
-    },
-    {
-      titleFr: "Trouvez l'appartement de vos rêves",
-      titleEn: "Find your dream apartment",
-      subtitleFr: "Des appartements confortables à Abidjan, Paris et Montréal.",
-      subtitleEn: "Comfortable apartments in Abidjan, Paris and Montreal.",
-      imageUrl: "/images/hero/hero-apartment.jpg",
-      buttonTextFr: "Voir les appartements",
-      buttonTextEn: "View apartments",
-      buttonLink: "/apartments",
-      order: 2,
-      isActive: true,
-    },
-    {
-      titleFr: "Offrez des moments inoubliables",
-      titleEn: "Offer unforgettable moments",
-      subtitleFr: "Découvrez nos chèques cadeaux personnalisés.",
-      subtitleEn: "Discover our personalized gift vouchers.",
-      imageUrl: "/images/hero/hero-gift.jpg",
-      buttonTextFr: "Nos chèques cadeaux",
-      buttonTextEn: "Our gift vouchers",
-      buttonLink: "/gifts",
-      order: 3,
-      isActive: true,
-    },
-  ];
+async function main() {
+  console.log('Seed Kadoor — utilisateurs admin + tarifs véhicules (pas de listings / hero)…');
 
-  for (const slide of slides) {
-    await prisma.heroSlide.create({ data: slide });
-  }
+  // HeroSlide : plus de seed (images gérées côté frontend)
+  // Véhicules / appartements : plus de seed (créés via l’admin)
 
-  /** Montants journaliers par forfait km (FCFA) — varient légèrement selon le segment */
-  const typePricingSeeds: Array<{
-    vehicleType: string;
-    tier1MileageDailyAmount: number;
-    tier2MileageDailyAmount: number;
-    tier3MileageDailyAmount: number;
-    overagePricePerKm: number;
-    insuranceAmount: number;
-    insuranceDiscountPercent: number;
-  }> = [
-    {
-      vehicleType: 'Berline',
-      tier1MileageDailyAmount: 35000,
-      tier2MileageDailyAmount: 50000,
-      tier3MileageDailyAmount: 75000,
-      overagePricePerKm: 300,
-      insuranceAmount: 15000,
-      insuranceDiscountPercent: 5,
-    },
-    {
-      vehicleType: 'SUV',
-      tier1MileageDailyAmount: 45000,
-      tier2MileageDailyAmount: 60000,
-      tier3MileageDailyAmount: 90000,
-      overagePricePerKm: 350,
-      insuranceAmount: 18000,
-      insuranceDiscountPercent: 5,
-    },
-    {
-      vehicleType: 'Utilitaire',
-      tier1MileageDailyAmount: 28000,
-      tier2MileageDailyAmount: 40000,
-      tier3MileageDailyAmount: 62000,
-      overagePricePerKm: 280,
-      insuranceAmount: 12000,
-      insuranceDiscountPercent: 0,
-    },
-    {
-      vehicleType: 'Fourgonnette',
-      tier1MileageDailyAmount: 32000,
-      tier2MileageDailyAmount: 48000,
-      tier3MileageDailyAmount: 72000,
-      overagePricePerKm: 320,
-      insuranceAmount: 14000,
-      insuranceDiscountPercent: 0,
-    },
-    {
-      vehicleType: 'Luxe',
-      tier1MileageDailyAmount: 85000,
-      tier2MileageDailyAmount: 120000,
-      tier3MileageDailyAmount: 165000,
-      overagePricePerKm: 450,
-      insuranceAmount: 25000,
-      insuranceDiscountPercent: 8,
-    },
-    {
-      vehicleType: 'Pick-up',
-      tier1MileageDailyAmount: 38000,
-      tier2MileageDailyAmount: 55000,
-      tier3MileageDailyAmount: 82000,
-      overagePricePerKm: 340,
-      insuranceAmount: 16000,
-      insuranceDiscountPercent: 0,
-    },
-  ];
+  await upsertAdmin({
+    email: 'admin@kadoorservice.com',
+    password: 'admin@@123',
+    firstName: 'Admin',
+    lastName: 'KADOOR',
+  });
 
-  console.log('Seeding VehicleTypePricing...');
+  await upsertAdmin({
+    email: 'admin.anderson@kadoorservice.com',
+    password: 'Azerty.123',
+    firstName: 'Anderson',
+    lastName: 'KADOOR',
+  });
+
+  console.log('Seeding VehicleTypePricing…');
   for (const row of typePricingSeeds) {
-    await prisma.vehicleTypePricing.create({
-      data: {
-        vehicleType: row.vehicleType,
+    await prisma.vehicleTypePricing.upsert({
+      where: { vehicleType: row.vehicleType },
+      update: {
         tier1MileageDailyAmount: row.tier1MileageDailyAmount,
         tier2MileageDailyAmount: row.tier2MileageDailyAmount,
         tier3MileageDailyAmount: row.tier3MileageDailyAmount,
@@ -178,146 +143,14 @@ async function main() {
         insuranceAmount: row.insuranceAmount,
         insuranceDiscountPercent: row.insuranceDiscountPercent,
       },
+      create: row,
     });
   }
 
-  console.log('Seeding Vehicles...');
-  const vehicles = [
-    {
-      title: 'Toyota Land Cruiser Prado',
-      description: 'Véhicule tout-terrain de luxe, idéal pour les longs trajets et le confort urbain.',
-      type: 'SUV',
-      make: 'Toyota',
-      model: 'Land Cruiser Prado',
-      year: 2022,
-      fuel: 'Diesel',
-      transmission: 'Automatique',
-      seats: 7,
-      location: 'Douala, Littoral',
-      images: ['https://images.unsplash.com/photo-1594502184342-2e12f877aa73?w=800'],
-      features: ['Climatisation', 'GPS', 'Cuir', '4x4'],
-    },
-    {
-      title: 'Mercedes-Benz Classe C',
-      description: 'Berline élégante alliant performance et raffinement.',
-      type: 'Berline',
-      make: 'Mercedes-Benz',
-      model: 'Classe C',
-      year: 2021,
-      fuel: 'Essence',
-      transmission: 'Automatique',
-      seats: 5,
-      location: 'Yaoundé, Centre',
-      images: ['https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=800'],
-      features: ['Climatisation', 'Bluetooth', 'Toit ouvrant'],
-    },
-    {
-      title: 'Ford Ranger Wildtrak',
-      description: 'Pick-up puissant et polyvalent pour tous vos besoins logistiques.',
-      type: 'Pick-up',
-      make: 'Ford',
-      model: 'Ranger Wildtrak',
-      year: 2023,
-      fuel: 'Diesel',
-      transmission: 'Automatique',
-      seats: 5,
-      location: 'Douala, Littoral',
-      images: ['https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=800'],
-      features: ['4x4', 'Crochet de remorquage', 'Régulateur de vitesse'],
-    },
-    {
-      title: 'Renault Master L2H2',
-      description: 'Utilitaire volumineux pour transport de marchandises ou équipes.',
-      type: 'Utilitaire',
-      make: 'Renault',
-      model: 'Master',
-      year: 2022,
-      fuel: 'Diesel',
-      transmission: 'Manuelle',
-      seats: 3,
-      location: 'Douala, Littoral',
-      images: ['https://images.unsplash.com/photo-1563720223185-11003d516935?w=800'],
-      features: ['Portes latérales', 'Hayon arrière', 'Système anti-blocage'],
-    },
-    {
-      title: 'Peugeot Boxer Fourgon',
-      description: 'Fourgonnette adaptée livraisons urbaines et artisans.',
-      type: 'Fourgonnette',
-      make: 'Peugeot',
-      model: 'Boxer',
-      year: 2021,
-      fuel: 'Diesel',
-      transmission: 'Manuelle',
-      seats: 3,
-      location: 'Yaoundé, Centre',
-      images: ['https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=800'],
-      features: ['Cargaison optimisée', 'Caméra de recul', 'Bluetooth'],
-    },
-    {
-      title: 'BMW Série 7',
-      description: 'Berline de prestige, confort maximal et technologies embarquées.',
-      type: 'Luxe',
-      make: 'BMW',
-      model: 'Série 7',
-      year: 2023,
-      fuel: 'Hybride',
-      transmission: 'Automatique',
-      seats: 5,
-      location: 'Abidjan, Cocody',
-      images: ['https://images.unsplash.com/photo-1555215695-3004980ad54e?w=800'],
-      features: ['Massage sièges', 'Pilotage adaptatif', 'Harman Kardon'],
-    },
-  ];
-
-  for (const vehicle of vehicles) {
-    await prisma.vehicle.create({ data: vehicle });
-  }
-
-  console.log('Seeding Apartments...');
-  const apartments = [
-    {
-      title: "Appartement de Luxe - Plateau",
-      description: "Superbe appartement avec vue sur la lagune, entièrement équipé.",
-      address: "Rue du Commerce",
-      city: "Abidjan",
-      pricePerNight: 120000,
-      bedrooms: 3,
-      bathrooms: 2,
-      area: 120,
-      images: ["https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=800"],
-      features: ["WIFI", "Piscine", "Sécurité 24/7", "Parking"],
-    },
-    {
-      title: "Studio Moderne - Cocody Angré",
-      description: "Studio cosy et fonctionnel dans un quartier calme.",
-      address: "Cité des Arts",
-      city: "Abidjan",
-      pricePerNight: 45000,
-      bedrooms: 1,
-      bathrooms: 1,
-      area: 45,
-      images: ["https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=800"],
-      features: ["Climatisation", "Cuisine équipée", "WIFI"],
-    },
-    {
-      title: "Penthouse - Riviera Golf",
-      description: "Haut standing, terrasse panoramique, finitions exceptionnelles.",
-      address: "Boulevard de France",
-      city: "Abidjan",
-      pricePerNight: 250000,
-      bedrooms: 4,
-      bathrooms: 4,
-      area: 300,
-      images: ["https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800"],
-      features: ["Vue Panoramique", "Domotique", "Gym", "Jacuzzi"],
-    },
-  ];
-
-  for (const apartment of apartments) {
-    await prisma.apartment.create({ data: apartment });
-  }
-
-  console.log('Seed completed successfully.');
+  console.log('Seed terminé.');
+  console.log('Comptes ADMIN :');
+  console.log('  - admin@kadoorservice.com / admin@@123');
+  console.log('  - admin.anderson@kadoorservice.com / Azerty.123');
 }
 
 main()
@@ -327,4 +160,5 @@ main()
   })
   .finally(async () => {
     await prisma.$disconnect();
+    await pool.end();
   });
