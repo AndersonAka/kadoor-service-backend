@@ -1,8 +1,23 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import PDFDocument from 'pdfkit';
-import * as fs from 'fs';
-import * as path from 'path';
+import {
+  drawAmountBanner,
+  drawDocumentTitle,
+  drawItemsTable,
+  drawMetaRows,
+  drawPartiesColumns,
+  drawPayOnlineButton,
+  drawPaymentHistory,
+  drawTopBar,
+  drawTotalsStack,
+  formatAmountFcfa,
+  formatDateFrLong,
+  formatDateFrShort,
+  shortDocRef,
+  stampFootersOnAllPages,
+  type LineItemRow,
+} from '../common/pdf/vercel-style-layout';
 
 const STAFF_ROLES = ['ADMIN', 'MANAGER', 'COMMERCIAL'];
 
@@ -25,9 +40,110 @@ export class DocumentsService {
     }
   }
 
-  /**
-   * Génère une facture PDF pour une réservation
-   */
+  private bookingDays(booking: { startDate: Date; endDate: Date }) {
+    return Math.max(
+      1,
+      Math.ceil(
+        (new Date(booking.endDate).getTime() - new Date(booking.startDate).getTime()) /
+          (1000 * 60 * 60 * 24),
+      ),
+    );
+  }
+
+  private customerName(user: { firstName?: string | null; lastName?: string | null; email?: string | null }) {
+    return `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email || 'Client';
+  }
+
+  private periodLabel(booking: { startDate: Date; endDate: Date }) {
+    return `${formatDateFrShort(booking.startDate)} – ${formatDateFrShort(booking.endDate)}`;
+  }
+
+  private buildBookingLines(
+    booking: any,
+    vehicleDailyRate: number,
+  ): { rows: LineItemRow[]; subtotal: number } {
+    const days = this.bookingDays(booking);
+    const rows: LineItemRow[] = [];
+    let subtotal = 0;
+
+    if (booking.vehicle) {
+      const base =
+        booking.mileagePackageCost != null
+          ? Number(booking.mileagePackageCost)
+          : vehicleDailyRate * days;
+      const unit =
+        days > 0
+          ? booking.mileagePackageCost != null
+            ? Number(booking.mileagePackageCost) / days
+            : vehicleDailyRate
+          : vehicleDailyRate;
+      rows.push({
+        description: `Location véhicule — ${booking.vehicle.title}`,
+        subtitle: this.periodLabel(booking),
+        qty: days,
+        unitPrice: formatAmountFcfa(unit),
+        amount: formatAmountFcfa(base),
+      });
+      subtotal += base;
+
+      if (booking.hasInsurance && booking.insurancePrice) {
+        rows.push({
+          description: 'Assurance complémentaire',
+          qty: 1,
+          unitPrice: formatAmountFcfa(booking.insurancePrice),
+          amount: formatAmountFcfa(booking.insurancePrice),
+        });
+        subtotal += Number(booking.insurancePrice);
+      }
+    } else if (booking.apartment) {
+      const nightsPrice = Number(booking.apartment.pricePerNight) * days;
+      rows.push({
+        description: `Location appartement — ${booking.apartment.title}`,
+        subtitle: this.periodLabel(booking),
+        qty: days,
+        unitPrice: formatAmountFcfa(booking.apartment.pricePerNight),
+        amount: formatAmountFcfa(nightsPrice),
+      });
+      subtotal += nightsPrice;
+
+      if (booking.cleaningFee && Number(booking.cleaningFee) > 0) {
+        rows.push({
+          description: 'Frais de nettoyage',
+          qty: 1,
+          unitPrice: formatAmountFcfa(booking.cleaningFee),
+          amount: formatAmountFcfa(booking.cleaningFee),
+        });
+        subtotal += Number(booking.cleaningFee);
+      }
+    }
+
+    if (booking.promoDiscount && Number(booking.promoDiscount) > 0) {
+      const code = booking.promoCode ? ` (${booking.promoCode})` : '';
+      rows.push({
+        description: `Réduction code promo${code}`,
+        qty: 1,
+        unitPrice: `− ${formatAmountFcfa(booking.promoDiscount)}`,
+        amount: `− ${formatAmountFcfa(booking.promoDiscount)}`,
+      });
+      subtotal -= Number(booking.promoDiscount);
+    }
+
+    // Garde-fou : le total enregistré reste la source de vérité affichée
+    const total = Number(booking.totalPrice) || subtotal;
+    if (rows.length === 0) {
+      rows.push({
+        description: 'Réservation Kadoor Service',
+        subtitle: this.periodLabel(booking),
+        qty: 1,
+        unitPrice: formatAmountFcfa(total),
+        amount: formatAmountFcfa(total),
+      });
+      return { rows, subtotal: total };
+    }
+
+    return { rows, subtotal: total };
+  }
+
   async generateInvoice(bookingId: string, requesterId: string, requesterRole: string): Promise<Buffer> {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
@@ -48,7 +164,10 @@ export class DocumentsService {
       const rateRow = await this.prisma.vehicleTypePricing.findUnique({
         where: { vehicleType: booking.vehicle.type },
       });
-      const tier = booking.mileagePackage === 'TIER2' || booking.mileagePackage === 'TIER3' ? booking.mileagePackage : 'TIER1';
+      const tier =
+        booking.mileagePackage === 'TIER2' || booking.mileagePackage === 'TIER3'
+          ? booking.mileagePackage
+          : 'TIER1';
       if (rateRow) {
         if (tier === 'TIER1') vehicleDailyRate = rateRow.tier1MileageDailyAmount;
         else if (tier === 'TIER2') vehicleDailyRate = rateRow.tier2MileageDailyAmount;
@@ -59,9 +178,6 @@ export class DocumentsService {
     return this.createInvoicePDF(booking, vehicleDailyRate);
   }
 
-  /**
-   * Génère un contrat PDF pour une réservation
-   */
   async generateContract(bookingId: string, requesterId: string, requesterRole: string): Promise<Buffer> {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
@@ -81,9 +197,6 @@ export class DocumentsService {
     return this.createContractPDF(booking);
   }
 
-  /**
-   * Génère un reçu PDF pour une réservation
-   */
   async generateReceipt(bookingId: string, requesterId: string, requesterRole: string): Promise<Buffer> {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
@@ -103,97 +216,94 @@ export class DocumentsService {
   }
 
   /**
-   * Crée le PDF de facture
+   * Facture réservation — mise en page type Vercel, en français, marque Kadoor.
    */
   private createInvoicePDF(booking: any, vehicleDailyRate: number): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      const doc = new PDFDocument({ margin: 50 });
+      const doc = new PDFDocument({
+        size: 'LETTER',
+        margin: 40,
+        bufferPages: true,
+        info: {
+          Title: `Facture ${shortDocRef(booking.id)}`,
+          Author: 'Kadoor Service',
+          Subject: 'Facture de réservation',
+          Creator: 'Kadoor Service',
+        },
+      });
       const chunks: Buffer[] = [];
-
       doc.on('data', (chunk) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // En-tête
-      doc.fontSize(20).text('FACTURE', { align: 'center' });
-      doc.moveDown();
-      doc.fontSize(10).text(`N° Facture: ${booking.id}`, { align: 'right' });
-      doc.text(`Date: ${new Date(booking.createdAt).toLocaleDateString('fr-FR')}`, {
-        align: 'right',
-      });
-      doc.moveDown();
+      const invoiceNumber = shortDocRef(booking.id);
+      const issueDate = formatDateFrLong(booking.createdAt);
+      const dueDate = formatDateFrLong(booking.startDate);
+      const total = Number(booking.totalPrice) || 0;
+      const isPaid = ['CONFIRMED', 'COMPLETED'].includes(booking.status);
+      const { rows, subtotal } = this.buildBookingLines(booking, vehicleDailyRate);
 
-      // Informations client
-      doc.fontSize(14).text('Informations Client', { underline: true });
-      doc.fontSize(10);
-      doc.text(`Nom: ${booking.user.firstName || ''} ${booking.user.lastName || ''}`);
-      doc.text(`Email: ${booking.user.email}`);
-      if (booking.user.phone) {
-        doc.text(`Téléphone: ${booking.user.phone}`);
-      }
-      doc.moveDown();
+      const billToLines: string[] = [];
+      if (booking.user?.address) billToLines.push(booking.user.address);
+      billToLines.push('Côte d\'Ivoire');
 
-      // Détails de la réservation
-      doc.fontSize(14).text('Détails de la Réservation', { underline: true });
-      doc.fontSize(10);
-      if (booking.vehicle) {
-        doc.text(`Véhicule: ${booking.vehicle.title}`);
-        doc.text(`Type: ${booking.vehicle.type}`);
-        if (booking.vehicle.location) {
-          doc.text(`Localisation: ${booking.vehicle.location}`);
-        }
-      } else if (booking.apartment) {
-        doc.text(`Appartement: ${booking.apartment.title}`);
-        doc.text(`Adresse: ${booking.apartment.address}`);
-        doc.text(`Ville: ${booking.apartment.city}`);
-      }
-      doc.moveDown();
-
-      // Période
-      doc.text(
-        `Période: ${new Date(booking.startDate).toLocaleDateString('fr-FR')} - ${new Date(booking.endDate).toLocaleDateString('fr-FR')}`,
+      drawTopBar(doc);
+      let y = drawDocumentTitle(doc, 'Facture');
+      y = drawMetaRows(
+        doc,
+        [
+          { label: 'N° de facture', value: invoiceNumber },
+          { label: "Date d'émission", value: issueDate },
+          { label: "Date d'échéance", value: dueDate },
+        ],
+        y,
       );
-      const days = Math.ceil(
-        (new Date(booking.endDate).getTime() - new Date(booking.startDate).getTime()) /
-          (1000 * 60 * 60 * 24),
+
+      y = drawPartiesColumns(
+        doc,
+        {
+          name: this.customerName(booking.user),
+          lines: billToLines,
+          email: booking.user?.email,
+          phone: booking.user?.phone,
+        },
+        y,
       );
-      doc.text(`Durée: ${days} jour(s)`);
-      doc.moveDown();
 
-      // Montant
-      doc.fontSize(14).text('Montant', { underline: true });
-      doc.fontSize(10);
-      if (booking.vehicle) {
-        doc.text(
-          `Tarif journalier (forfait km, type ${booking.vehicle.type}): ${vehicleDailyRate.toFixed(2)} FCFA / jour`,
-        );
-        doc.text(`Nombre de jours: ${days}`);
-      } else if (booking.apartment) {
-        doc.text(`Prix par nuit: ${booking.apartment.pricePerNight.toFixed(2)} FCFA`);
-        doc.text(`Nombre de nuits: ${days}`);
+      const banner = isPaid
+        ? `${formatAmountFcfa(total)} payé`
+        : `${formatAmountFcfa(total)} à payer le ${dueDate}`;
+      y = drawAmountBanner(doc, banner, y);
+
+      if (!isPaid) {
+        const payUrl = process.env.WEB_APP_URL
+          ? `${process.env.WEB_APP_URL.replace(/\/$/, '')}/bookings/${booking.id}`
+          : null;
+        y = drawPayOnlineButton(doc, 'Payer en ligne', payUrl, y);
+      } else {
+        y += 6;
       }
-      doc.moveDown();
-      doc.fontSize(16).text(`Total: ${booking.totalPrice.toFixed(2)} FCFA`, {
-        align: 'right',
-      });
-      doc.moveDown();
 
-      // Statut
-      doc.fontSize(10).text(`Statut: ${booking.status}`, { align: 'right' });
+      y = drawItemsTable(doc, rows, y);
+      y = drawTotalsStack(
+        doc,
+        [
+          { label: 'Sous-total', value: formatAmountFcfa(subtotal) },
+          { label: 'Total', value: formatAmountFcfa(total), emphasize: true },
+          {
+            label: isPaid ? 'Montant payé' : 'Montant dû',
+            value: `${formatAmountFcfa(total)}${isPaid ? '' : ''}`,
+            emphasize: true,
+          },
+        ],
+        y,
+      );
 
-      // Pied de page
-      doc.moveTo(50, doc.page.height - 50).lineTo(doc.page.width - 50, doc.page.height - 50).stroke();
-      doc.fontSize(8).text('KADOOR SERVICE - Facture générée automatiquement', {
-        align: 'center',
-      });
-
+      stampFootersOnAllPages(doc);
       doc.end();
     });
   }
 
-  /**
-   * Crée le PDF de contrat
-   */
   private async createContractPDF(booking: any): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 50 });
@@ -203,7 +313,6 @@ export class DocumentsService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // En-tête
       doc.fontSize(20).text('CONTRAT DE LOCATION', { align: 'center' });
       doc.moveDown();
       doc.fontSize(10).text(`N° Contrat: ${booking.id}`, { align: 'right' });
@@ -212,7 +321,6 @@ export class DocumentsService {
       });
       doc.moveDown();
 
-      // Parties
       doc.fontSize(14).text('PARTIES', { underline: true });
       doc.fontSize(10);
       doc.text('LOUEUR: KADOOR SERVICE');
@@ -225,7 +333,6 @@ export class DocumentsService {
       }
       doc.moveDown();
 
-      // Objet
       doc.fontSize(14).text('OBJET', { underline: true });
       doc.fontSize(10);
       if (booking.vehicle) {
@@ -237,7 +344,6 @@ export class DocumentsService {
       }
       doc.moveDown();
 
-      // Période
       doc.fontSize(14).text('PÉRIODE', { underline: true });
       doc.fontSize(10);
       doc.text(
@@ -245,22 +351,19 @@ export class DocumentsService {
       );
       doc.moveDown();
 
-      // Montant
       doc.fontSize(14).text('MONTANT', { underline: true });
       doc.fontSize(10);
       doc.text(`Montant total: ${booking.totalPrice.toFixed(2)} FCFA`);
       doc.moveDown();
 
-      // Conditions générales
       doc.fontSize(14).text('CONDITIONS GÉNÉRALES', { underline: true });
       doc.fontSize(10);
-      doc.text('1. Le locataire s\'engage à utiliser le bien loué conformément à sa destination.');
+      doc.text("1. Le locataire s'engage à utiliser le bien loué conformément à sa destination.");
       doc.text('2. Le locataire est responsable des dommages causés au bien loué.');
       doc.text('3. Le paiement doit être effectué avant le début de la location.');
       doc.text('4. Toute annulation doit être effectuée selon les conditions prévues.');
       doc.moveDown();
 
-      // Signature
       doc.moveDown();
       doc.text('Signature du locataire:', { underline: true });
       doc.moveDown(3);
@@ -275,54 +378,92 @@ export class DocumentsService {
   }
 
   /**
-   * Crée le PDF de reçu
+   * Reçu de paiement — même modèle Vercel, section historique des paiements.
    */
-  private async createReceiptPDF(booking: any): Promise<Buffer> {
+  private createReceiptPDF(booking: any): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      const doc = new PDFDocument({ margin: 50 });
+      const doc = new PDFDocument({
+        size: 'LETTER',
+        margin: 40,
+        bufferPages: true,
+        info: {
+          Title: `Reçu ${shortDocRef(booking.id, 'R')}`,
+          Author: 'Kadoor Service',
+          Subject: 'Reçu de paiement',
+          Creator: 'Kadoor Service',
+        },
+      });
       const chunks: Buffer[] = [];
-
       doc.on('data', (chunk) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // En-tête
-      doc.fontSize(20).text('REÇU DE PAIEMENT', { align: 'center' });
-      doc.moveDown();
-      doc.fontSize(10).text(`N° Reçu: ${booking.id}`, { align: 'right' });
-      doc.text(`Date: ${new Date(booking.createdAt).toLocaleDateString('fr-FR')}`, {
-        align: 'right',
-      });
-      doc.moveDown();
+      const invoiceNumber = shortDocRef(booking.id);
+      const receiptNumber = shortDocRef(booking.id, 'R');
+      const paidAt = booking.updatedAt || booking.createdAt;
+      const paidDate = formatDateFrLong(paidAt);
+      const total = Number(booking.totalPrice) || 0;
+      const { rows, subtotal } = this.buildBookingLines(booking, 0);
 
-      // Informations
-      doc.fontSize(10);
-      doc.text(`Reçu de: ${booking.user.firstName || ''} ${booking.user.lastName || ''}`);
-      doc.text(`Email: ${booking.user.email}`);
-      doc.moveDown();
+      const billToLines: string[] = [];
+      if (booking.user?.address) billToLines.push(booking.user.address);
+      billToLines.push('Côte d\'Ivoire');
 
-      if (booking.vehicle) {
-        doc.text(`Pour: Location véhicule - ${booking.vehicle.title}`);
-      } else if (booking.apartment) {
-        doc.text(`Pour: Location appartement - ${booking.apartment.title}`);
-      }
-      doc.moveDown();
+      drawTopBar(doc);
+      let y = drawDocumentTitle(doc, 'Reçu');
+      y = drawMetaRows(
+        doc,
+        [
+          { label: 'N° de facture', value: invoiceNumber },
+          { label: 'N° de reçu', value: receiptNumber },
+          { label: 'Date de paiement', value: paidDate },
+        ],
+        y,
+      );
 
-      // Montant
-      doc.fontSize(16).text(`Montant reçu: ${booking.totalPrice.toFixed(2)} FCFA`, {
-        align: 'center',
-      });
-      doc.moveDown();
+      y = drawPartiesColumns(
+        doc,
+        {
+          name: this.customerName(booking.user),
+          lines: billToLines,
+          email: booking.user?.email,
+          phone: booking.user?.phone,
+        },
+        y,
+      );
 
-      // Statut
-      doc.fontSize(10).text(`Statut: ${booking.status}`, { align: 'right' });
+      y = drawAmountBanner(doc, `${formatAmountFcfa(total)} payé le ${paidDate}`, y);
+      y += 8;
 
-      // Pied de page
-      doc.moveTo(50, doc.page.height - 50).lineTo(doc.page.width - 50, doc.page.height - 50).stroke();
-      doc.fontSize(8).text('KADOOR SERVICE - Reçu généré automatiquement', {
-        align: 'center',
-      });
+      y = drawItemsTable(doc, rows, y);
+      y = drawTotalsStack(
+        doc,
+        [
+          { label: 'Sous-total', value: formatAmountFcfa(subtotal) },
+          { label: 'Total', value: formatAmountFcfa(total), emphasize: true },
+          { label: 'Montant payé', value: formatAmountFcfa(total), emphasize: true },
+        ],
+        y,
+      );
 
+      const method = booking.paymentReference
+        ? `GeniusPay — ${booking.paymentReference}`
+        : 'GeniusPay';
+
+      y = drawPaymentHistory(
+        doc,
+        [
+          {
+            method,
+            date: paidDate,
+            amount: formatAmountFcfa(total),
+            receiptNumber,
+          },
+        ],
+        y,
+      );
+
+      stampFootersOnAllPages(doc);
       doc.end();
     });
   }

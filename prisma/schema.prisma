@@ -121,6 +121,23 @@ model User {
   giftCards       GiftCard[]
   giftCardBatches GiftCardBatch[]
   assignedPromoCodes PromoCode[] @relation("PromoCodeAssignedUser")
+  sessions           UserSession[]
+}
+
+/// Session staff (ADMIN / MANAGER / COMMERCIAL) — une seule active à la fois, idle 30 min.
+model UserSession {
+  id             String    @id @default(uuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent      String?
+  ip             String?
+  createdAt      DateTime  @default(now())
+  lastActivityAt DateTime  @default(now())
+  revokedAt      DateTime?
+  revokeReason   String?   // IDLE | TAKEOVER | LOGOUT | LOGOUT_ALL | ADMIN
+
+  @@index([userId, revokedAt])
+  @@index([lastActivityAt])
 }
 
 /// Tarification partagée par type de véhicule (location + forfaits km journaliers + assurance)

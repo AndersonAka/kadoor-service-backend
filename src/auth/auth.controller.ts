@@ -1,21 +1,36 @@
-import { Controller, Post, Body, UseGuards, Get, Request, UnauthorizedException, Res, Query, Patch, BadRequestException } from '@nestjs/common';
-import type { Response } from 'express';
+import {
+  Controller,
+  Post,
+  Body,
+  UseGuards,
+  Get,
+  Request,
+  UnauthorizedException,
+  Res,
+  Query,
+  Patch,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
+import type { Request as ExpressRequest, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
+import { SessionsService } from './sessions.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { UsersService } from '../users/users.service';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { isStaffSessionRole } from './session.constants';
 
-// Limite stricte pour les endpoints exposés au brute force / à l'énumération
 const AUTH_THROTTLE = { default: { limit: 5, ttl: 60000 } };
 
 const AUTH_COOKIE_NAME = 'access_token';
-const AUTH_COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 1 jour, aligné sur signOptions.expiresIn du JwtModule
+const AUTH_COOKIE_MAX_AGE_CLIENT = 24 * 60 * 60 * 1000;
+const AUTH_COOKIE_MAX_AGE_STAFF = 8 * 60 * 60 * 1000;
 
 @ApiTags('auth')
 @Controller('auth')
@@ -25,18 +40,34 @@ export class AuthController {
     private usersService: UsersService,
     private configService: ConfigService,
     private jwtService: JwtService,
+    private sessionsService: SessionsService,
   ) {}
 
-  // Le JWT ne transite jamais dans le corps de la réponse JSON : uniquement via un
-  // cookie httpOnly, inaccessible en JavaScript (protection contre le vol de token par XSS).
-  private setAuthCookie(res: Response, token: string) {
+  private clientMeta(req: ExpressRequest) {
+    const forwarded = req.headers['x-forwarded-for'];
+    const ipFromForwarded = Array.isArray(forwarded)
+      ? forwarded[0]
+      : typeof forwarded === 'string'
+        ? forwarded.split(',')[0]?.trim()
+        : undefined;
+    return {
+      userAgent: req.headers['user-agent'] || null,
+      ip: ipFromForwarded || req.ip || null,
+    };
+  }
+
+  private setAuthCookie(res: Response, token: string, staff: boolean) {
     res.cookie(AUTH_COOKIE_NAME, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: AUTH_COOKIE_MAX_AGE,
+      maxAge: staff ? AUTH_COOKIE_MAX_AGE_STAFF : AUTH_COOKIE_MAX_AGE_CLIENT,
       path: '/',
     });
+  }
+
+  private clearAuthCookie(res: Response) {
+    res.clearCookie(AUTH_COOKIE_NAME, { path: '/' });
   }
 
   @Throttle(AUTH_THROTTLE)
@@ -44,52 +75,103 @@ export class AuthController {
   @ApiOperation({ summary: 'Connexion utilisateur' })
   @ApiResponse({ status: 200, description: 'Connexion réussie' })
   @ApiResponse({ status: 401, description: 'Identifiants invalides' })
-  async login(@Body() loginDto: LoginDto, @Res({ passthrough: true }) res: Response) {
+  @ApiResponse({ status: 409, description: 'Session staff déjà active ailleurs' })
+  async login(
+    @Body() loginDto: LoginDto,
+    @Request() req: ExpressRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     try {
-      console.log(`[AuthController] Login attempt for: ${loginDto.email}`);
       const user = await this.authService.validateUser(loginDto.email, loginDto.password);
       if (!user) {
-        console.log(`[AuthController] Login failed for: ${loginDto.email}`);
         throw new UnauthorizedException('Invalid credentials');
       }
-      console.log(`[AuthController] Login successful for: ${loginDto.email}`);
-      const result = await this.authService.login(user);
-      this.setAuthCookie(res, result.access_token);
+      const result = await this.authService.login(user, {
+        force: !!loginDto.force,
+        meta: this.clientMeta(req),
+      });
+      this.setAuthCookie(res, result.access_token, isStaffSessionRole(user.role));
       return { user: result.user };
     } catch (error) {
-      console.error(`[AuthController] Error in login:`, error);
-      if (error instanceof UnauthorizedException) {
+      if (error instanceof UnauthorizedException || error instanceof ConflictException) {
         throw error;
       }
+      console.error(`[AuthController] Error in login:`, error);
       throw new UnauthorizedException('Login failed');
     }
   }
 
   @Post('logout')
-  @ApiOperation({ summary: 'Déconnexion (efface le cookie de session)' })
-  async logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie(AUTH_COOKIE_NAME, { path: '/' });
+  @ApiOperation({ summary: 'Déconnexion (révoque la session staff si possible + efface le cookie)' })
+  async logout(@Request() req: ExpressRequest, @Res({ passthrough: true }) res: Response) {
+    const raw = req.cookies?.[AUTH_COOKIE_NAME];
+    if (raw) {
+      try {
+        const payload = this.jwtService.verify(raw) as { sub?: string; sid?: string };
+        if (payload?.sub && payload?.sid) {
+          await this.authService.logoutSession(payload.sub, payload.sid);
+        }
+      } catch {
+        /* cookie déjà invalide — on nettoie quand même */
+      }
+    }
+    this.clearAuthCookie(res);
+    return { success: true };
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('session/touch')
+  @ApiOperation({ summary: 'Prolonge la session staff (reste connecté)' })
+  async touchSession(@Request() req: any) {
+    if (!isStaffSessionRole(req.user?.role) || !req.user?.sessionId) {
+      return { success: true, staff: false };
+    }
+    await this.sessionsService.touch(req.user.sessionId, req.user.id);
+    return { success: true, staff: true };
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('session/logout-all')
+  @ApiOperation({ summary: 'Révoque toutes les sessions staff du compte' })
+  async logoutAll(@Request() req: any, @Res({ passthrough: true }) res: Response) {
+    if (isStaffSessionRole(req.user?.role)) {
+      await this.authService.logoutAllSessions(req.user.id);
+    }
+    this.clearAuthCookie(res);
     return { success: true };
   }
 
   @Throttle(AUTH_THROTTLE)
   @Post('session-from-token')
-  @ApiOperation({ summary: "Échange un JWT (reçu en query string, ex: callback OAuth) contre un cookie de session" })
+  @ApiOperation({
+    summary: "Échange un JWT (reçu en query string, ex: callback OAuth) contre un cookie de session",
+  })
   @ApiResponse({ status: 200, description: 'Session établie' })
   @ApiResponse({ status: 401, description: 'Token invalide ou expiré' })
-  async sessionFromToken(@Body('token') token: string, @Res({ passthrough: true }) res: Response) {
+  async sessionFromToken(
+    @Body('token') token: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     if (!token) {
       throw new UnauthorizedException('Token manquant');
     }
     try {
-      const payload = this.jwtService.verify(token);
+      const payload = this.jwtService.verify(token) as { sub: string; sid?: string; role?: string };
       const user = await this.usersService.findOne(payload.sub);
       if (!user) {
         throw new UnauthorizedException('Utilisateur introuvable');
       }
-      this.setAuthCookie(res, token);
+      // Staff : le JWT doit déjà contenir un sid créé au login Google
+      if (isStaffSessionRole(user.role) && !payload.sid) {
+        throw new UnauthorizedException({
+          code: 'SESSION_REQUIRED',
+          message: 'Session staff requise. Veuillez vous reconnecter.',
+        });
+      }
+      this.setAuthCookie(res, token, isStaffSessionRole(user.role));
       return { user };
-    } catch {
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Token invalide ou expiré');
     }
   }
@@ -123,19 +205,19 @@ export class AuthController {
   @UseGuards(AuthGuard('google'))
   @ApiOperation({ summary: 'Callback Google OAuth' })
   async googleAuthRedirect(@Request() req: any, @Res() res: Response) {
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
     try {
-      console.log('[AuthController] Google callback received');
-      const result = await this.authService.googleLogin(req.user);
-      
-      // Rediriger vers le frontend avec le token
-      const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+      const result = await this.authService.googleLogin(req.user, {
+        force: false,
+        meta: this.clientMeta(req),
+      });
       const redirectUrl = `${frontendUrl}/auth/google/callback?token=${result.access_token}`;
-
-      console.log('[AuthController] Redirecting to frontend after Google callback (token omitted from logs)');
       return res.redirect(redirectUrl);
     } catch (error) {
+      if (error instanceof ConflictException) {
+        return res.redirect(`${frontendUrl}/login?error=session_exists`);
+      }
       console.error('[AuthController] Google callback error:', error);
-      const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
       return res.redirect(`${frontendUrl}/login?error=google_auth_failed`);
     }
   }
@@ -145,33 +227,29 @@ export class AuthController {
   @ApiOperation({ summary: 'Connexion Google avec token ID (pour frontend)' })
   @ApiResponse({ status: 200, description: 'Connexion réussie' })
   @ApiResponse({ status: 401, description: 'Token invalide' })
-  async googleTokenLogin(@Body('credential') credential: string, @Res({ passthrough: true }) res: Response) {
+  @ApiResponse({ status: 409, description: 'Session staff déjà active ailleurs' })
+  async googleTokenLogin(
+    @Body() body: { credential: string; force?: boolean },
+    @Request() req: ExpressRequest,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     try {
       const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
-      console.log('[AuthController] Google token login attempt');
-      console.log('[AuthController] Using GOOGLE_CLIENT_ID:', clientId ? `${clientId.substring(0, 20)}...` : 'NOT SET');
-      
       if (!clientId) {
-        console.error('[AuthController] GOOGLE_CLIENT_ID is not configured');
         throw new UnauthorizedException('Google OAuth not configured');
       }
-
-      if (!credential) {
-        console.error('[AuthController] No credential provided');
+      if (!body?.credential) {
         throw new UnauthorizedException('No credential provided');
       }
-      
-      // Décoder le token JWT Google (ID Token)
+
       const { OAuth2Client } = require('google-auth-library');
       const client = new OAuth2Client(clientId);
-      
       const ticket = await client.verifyIdToken({
-        idToken: credential,
+        idToken: body.credential,
         audience: clientId,
       });
-      
       const payload = ticket.getPayload();
-      
+
       const googleUser = {
         googleId: payload.sub,
         email: payload.email,
@@ -181,15 +259,18 @@ export class AuthController {
         provider: 'google',
       };
 
-      console.log('[AuthController] Google user from token:', googleUser.email);
-
       const user = await this.authService.validateGoogleUser(googleUser);
-      const result = await this.authService.login(user);
-      this.setAuthCookie(res, result.access_token);
+      const result = await this.authService.login(user, {
+        force: !!body.force,
+        meta: this.clientMeta(req),
+      });
+      this.setAuthCookie(res, result.access_token, isStaffSessionRole(user.role));
       return { user: result.user };
     } catch (error) {
-      console.error('[AuthController] Google token login error:', error.message);
-      console.error('[AuthController] Error details:', error);
+      if (error instanceof ConflictException || error instanceof UnauthorizedException) {
+        throw error;
+      }
+      console.error('[AuthController] Google token login error:', error);
       throw new UnauthorizedException('Invalid Google token');
     }
   }
@@ -214,10 +295,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Changer le mot de passe' })
   @ApiResponse({ status: 200, description: 'Mot de passe changé' })
   @ApiResponse({ status: 400, description: 'Mot de passe actuel incorrect' })
-  async changePassword(
-    @Request() req: any,
-    @Body() body: ChangePasswordDto,
-  ) {
+  async changePassword(@Request() req: any, @Body() body: ChangePasswordDto) {
     const result = await this.authService.changePassword(
       req.user.id,
       body.currentPassword,
@@ -233,8 +311,12 @@ export class AuthController {
   @Post('deactivate-account')
   @ApiOperation({ summary: 'Désactiver le compte (soft delete)' })
   @ApiResponse({ status: 200, description: 'Compte désactivé' })
-  async deactivateAccount(@Request() req: any) {
+  async deactivateAccount(@Request() req: any, @Res({ passthrough: true }) res: Response) {
+    if (isStaffSessionRole(req.user?.role) && req.user?.sessionId) {
+      await this.authService.logoutSession(req.user.id, req.user.sessionId);
+    }
     await this.authService.deactivateAccount(req.user.id);
+    this.clearAuthCookie(res);
     return { message: 'Account deactivated successfully' };
   }
 

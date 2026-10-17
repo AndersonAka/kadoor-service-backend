@@ -1,8 +1,16 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { EmailService } from '../email/email.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { SessionsService, SessionMeta } from './sessions.service';
+import { isStaffSessionRole, STAFF_JWT_EXPIRES_IN } from './session.constants';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 
@@ -22,6 +30,8 @@ export class AuthService {
     private jwtService: JwtService,
     private emailService: EmailService,
     private prisma: PrismaService,
+    private sessionsService: SessionsService,
+    private audit: AuditService,
   ) {}
 
   async validateUser(email: string, pass: string): Promise<any> {
@@ -87,23 +97,76 @@ export class AuthService {
     return result;
   }
 
-  async login(user: any) {
+  /**
+   * Émet un JWT. Pour le staff : session exclusive (sid) + TTL 8h.
+   * @throws ConflictException SESSION_EXISTS si une autre session est active et force=false
+   */
+  async login(
+    user: any,
+    options: { force?: boolean; meta?: SessionMeta } = {},
+  ) {
     try {
       console.log(`[AuthService] Generating token for user: ${user.email}, id: ${user.id}`);
-      const payload = {
+      const payload: Record<string, unknown> = {
         email: user.email,
         sub: user.id,
         role: user.role,
         userId: user.id,
         permissions: user.permissions || [],
       };
+
+      if (isStaffSessionRole(user.role)) {
+        const opened = await this.sessionsService.openExclusiveSession(
+          user.id,
+          options.meta || {},
+          !!options.force,
+        );
+        if (opened.conflict) {
+          throw new ConflictException({
+            code: 'SESSION_EXISTS',
+            message:
+              'Ce compte est déjà connecté sur un autre navigateur ou appareil.',
+            existingSession: opened.existing,
+          });
+        }
+        payload.sid = opened.session.id;
+
+        await this.audit.record({
+          action: options.force ? 'session.takeover' : 'session.created',
+          entityType: 'UserSession',
+          entityId: opened.session.id,
+          actorId: user.id,
+          actorEmail: user.email,
+          actorRole: user.role,
+          outcome: 'SUCCESS',
+          source: 'API',
+          summary: options.force
+            ? `Prise de session staff (${user.email}) — autres déconnectés`
+            : `Session staff ouverte (${user.email})`,
+          metadata: {
+            role: user.role,
+            ip: options.meta?.ip,
+            userAgent: options.meta?.userAgent,
+          },
+          ipAddress: options.meta?.ip || undefined,
+          userAgent: options.meta?.userAgent || undefined,
+        });
+
+        const staffToken = this.jwtService.sign(payload, {
+          expiresIn: STAFF_JWT_EXPIRES_IN as `${number}h`,
+        });
+        console.log(`[AuthService] Token generated successfully`);
+        return { access_token: staffToken, user };
+      }
+
       const token = this.jwtService.sign(payload);
       console.log(`[AuthService] Token generated successfully`);
       return {
         access_token: token,
-        user: user
+        user,
       };
     } catch (error) {
+      if (error instanceof ConflictException) throw error;
       console.error(`[AuthService] Error generating token:`, error);
       throw new UnauthorizedException('Failed to generate token');
     }
@@ -112,11 +175,42 @@ export class AuthService {
   /**
    * Login pour utilisateur Google (après validation OAuth)
    */
-  async googleLogin(user: any) {
+  async googleLogin(
+    user: any,
+    options: { force?: boolean; meta?: SessionMeta } = {},
+  ) {
     if (!user) {
       throw new UnauthorizedException('No user from Google');
     }
-    return this.login(user);
+    return this.login(user, options);
+  }
+
+  async logoutSession(userId: string | undefined, sessionId: string | undefined) {
+    if (userId && sessionId) {
+      await this.sessionsService.revokeSession(sessionId, 'LOGOUT');
+      await this.audit.record({
+        action: 'session.logout',
+        entityType: 'UserSession',
+        entityId: sessionId,
+        actorId: userId,
+        outcome: 'SUCCESS',
+        source: 'API',
+        summary: 'Déconnexion staff',
+      });
+    }
+  }
+
+  async logoutAllSessions(userId: string) {
+    await this.sessionsService.revokeAllForUser(userId, 'LOGOUT_ALL');
+    await this.audit.record({
+      action: 'session.logout_all',
+      entityType: 'User',
+      entityId: userId,
+      actorId: userId,
+      outcome: 'SUCCESS',
+      source: 'API',
+      summary: 'Déconnexion de toutes les sessions staff',
+    });
   }
 
   /**

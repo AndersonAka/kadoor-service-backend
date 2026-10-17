@@ -292,6 +292,7 @@ export class AdminService {
         type: vehicle.type,
         bookingsCount: vehicle._count.bookings,
         fromPriceTier1,
+        image: vehicle.images?.[0] || null,
       };
     });
   }
@@ -329,6 +330,7 @@ export class AdminService {
       city: apartment.city,
       bookingsCount: apartment._count.bookings,
       pricePerNight: apartment.pricePerNight,
+      image: apartment.images?.[0] || null,
     }));
   }
 
