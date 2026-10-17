@@ -24,7 +24,11 @@ export class EmailService {
    */
   async sendReservationConfirmation(booking: any, userEmail: string): Promise<void> {
     const subject = 'Confirmation de votre réservation - KADOOR SERVICE';
-    const template = this.getEmailTemplate('reservation-confirmation');
+    const isVehicle = Boolean(booking.vehicleId || booking.vehicle);
+    // Contrat PDF uniquement pour les locations véhicule — jamais pour les appartements
+    const template = this.getEmailTemplate(
+      isVehicle ? 'reservation-confirmation' : 'reservation-confirmation-apartment',
+    );
     
     // URLs pour les documents téléchargeables
     const bookingPageUrl = `${this.frontendUrl}/fr/bookings/${booking.id}`;
@@ -34,7 +38,7 @@ export class EmailService {
       bookingId: booking.id,
       userName: `${booking.user.firstName || ''} ${booking.user.lastName || ''}`.trim() || 'Client',
       itemName: booking.vehicle?.title || booking.apartment?.title,
-      itemType: booking.vehicle ? 'Véhicule' : 'Appartement',
+      itemType: isVehicle ? 'Véhicule' : 'Appartement',
       startDate: new Date(booking.startDate).toLocaleDateString('fr-FR'),
       endDate: new Date(booking.endDate).toLocaleDateString('fr-FR'),
       totalPrice: booking.totalPrice.toFixed(2),
@@ -42,17 +46,21 @@ export class EmailService {
       logoUrl,
       invoiceUrl: `${bookingPageUrl}?download=invoice`,
       receiptUrl: `${bookingPageUrl}?download=receipt`,
-      contractUrl: `${bookingPageUrl}?download=contract`,
+      ...(isVehicle ? { contractUrl: `${bookingPageUrl}?download=contract` } : {}),
     });
 
     await this.sendEmail(userEmail, subject, html);
   }
 
   /**
-   * Envoie un email avec lien vers le contrat
+   * Envoie un email avec lien vers le contrat (véhicules uniquement).
    * Note: OneSignal ne supporte pas les pièces jointes, on inclut un lien de téléchargement
    */
   async sendContract(booking: any, userEmail: string): Promise<void> {
+    if (booking.apartmentId || booking.apartment || !(booking.vehicleId || booking.vehicle)) {
+      this.logger.log(`sendContract ignoré (réservation appartement ${booking.id})`);
+      return;
+    }
     const subject = 'Votre contrat de location - KADOOR SERVICE';
     const template = this.getEmailTemplate('contract');
     const contractUrl = `${this.frontendUrl}/bookings/${booking.id}?download=contract`;
@@ -624,6 +632,68 @@ export class EmailService {
                 <a href="{{invoiceUrl}}" class="btn">Facture</a>
                 <a href="{{receiptUrl}}" class="btn btn-outline">Reçu</a>
                 <a href="{{contractUrl}}" class="btn btn-outline">Contrat</a>
+              </div>
+
+              <p>Si vous avez des questions, n'hésitez pas à nous contacter.</p>
+              <p style="margin-top: 30px;">Cordialement,<br><strong>L'équipe KADOOR SERVICE</strong></p>
+            </div>
+            <div class="footer">
+              <p><strong>KADOOR SERVICE</strong></p>
+              <p>Abidjan, Côte d'Ivoire</p>
+              <p>Cet email est généré automatiquement, merci de ne pas y répondre.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      // Variante appartement : facture + reçu uniquement (pas de contrat)
+      'reservation-confirmation-apartment': `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f5f5f5; }
+            .container { max-width: 600px; margin: 0 auto; background: #fff; }
+            .header { background: linear-gradient(135deg, #b91c1c 0%, #d4af37 100%); color: white; padding: 30px; text-align: center; }
+            .header img { max-height: 48px; margin-bottom: 12px; }
+            .content { padding: 30px; }
+            .details-box { background: #f8f9fa; border-radius: 8px; padding: 20px; margin: 20px 0; }
+            .details-box ul { list-style: none; padding: 0; margin: 0; }
+            .details-box li { padding: 8px 0; border-bottom: 1px solid #eee; }
+            .details-box li:last-child { border-bottom: none; }
+            .documents-section { margin: 24px 0; text-align: center; }
+            .btn { display: inline-block; background: #b91c1c; color: white !important; padding: 12px 20px; text-decoration: none; border-radius: 6px; margin: 6px; font-weight: 600; }
+            .btn-outline { background: transparent; color: #b91c1c !important; border: 2px solid #b91c1c; }
+            .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; background: #f8f9fa; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <img src="{{logoUrl}}" alt="KADOOR SERVICE" />
+              <h1>Confirmation de Réservation</h1>
+            </div>
+            <div class="content">
+              <p>Bonjour <strong>{{userName}}</strong>,</p>
+              <p>Votre réservation a été confirmée avec succès ! Nous vous remercions de votre confiance.</p>
+              
+              <div class="details-box">
+                <h3>Détails de la réservation</h3>
+                <ul>
+                  <li><strong>N° Réservation :</strong> {{bookingId}}</li>
+                  <li><strong>{{itemType}} :</strong> {{itemName}}</li>
+                  <li><strong>Période :</strong> Du {{startDate}} au {{endDate}}</li>
+                  <li><strong>Montant total :</strong> {{totalPrice}} FCFA</li>
+                  <li><strong>Statut :</strong> {{status}}</li>
+                </ul>
+              </div>
+
+              <div class="documents-section">
+                <h3>Vos documents</h3>
+                <p>Téléchargez vos documents :</p>
+                <a href="{{invoiceUrl}}" class="btn">Facture</a>
+                <a href="{{receiptUrl}}" class="btn btn-outline">Reçu</a>
               </div>
 
               <p>Si vous avez des questions, n'hésitez pas à nous contacter.</p>

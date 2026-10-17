@@ -1,38 +1,41 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReviewDto } from './dto/create-review.dto';
-
-// ReviewsService est le service qui gère les reviews (commentaires) des véhicules et des appartements
-// Il permet de créer, de lire, de mettre à jour et de supprimer les reviews
-// Il permet également de calculer la moyenne des notes des véhicules et des appartements
-// Il permet également de calculer le nombre de reviews des véhicules et des appartements
-// Il permet également de calculer le nombre de reviews des véhicules et des appartements
+import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 
 @Injectable()
 export class ReviewsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private inAppNotifications: InAppNotificationsService,
+  ) {}
 
   async create(createReviewDto: CreateReviewDto) {
-    // Vérifier que le véhicule ou l'appartement existe
+    let itemTitle = 'Service';
+
     if (createReviewDto.vehicleId) {
       const vehicle = await this.prisma.vehicle.findUnique({
         where: { id: createReviewDto.vehicleId },
+        select: { id: true, title: true },
       });
       if (!vehicle) {
         throw new NotFoundException('Vehicle not found');
       }
+      itemTitle = vehicle.title;
     }
 
     if (createReviewDto.apartmentId) {
       const apartment = await this.prisma.apartment.findUnique({
         where: { id: createReviewDto.apartmentId },
+        select: { id: true, title: true },
       });
       if (!apartment) {
         throw new NotFoundException('Apartment not found');
       }
+      itemTitle = apartment.title;
     }
 
-    return this.prisma.review.create({
+    const review = await this.prisma.review.create({
       data: createReviewDto,
       include: {
         user: {
@@ -45,6 +48,12 @@ export class ReviewsService {
         },
       },
     });
+
+    this.inAppNotifications
+      .notifyNewReview(itemTitle, review.rating)
+      .catch((err) => console.error('[ReviewsService] In-app new review notif error:', err));
+
+    return review;
   }
 
   async findByVehicle(vehicleId: string) {

@@ -8,6 +8,7 @@ import { VehiclesService } from '../vehicles/vehicles.service';
 import { ApartmentsService } from '../apartments/apartments.service';
 import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 import { GeniusPayService } from '../payments/providers/geniuspay/geniuspay.service';
 import { SettingsService } from '../settings/settings.service';
 import { PromoCodesService } from '../promo-codes/promo-codes.service';
@@ -29,6 +30,7 @@ export class ReservationsService {
     private apartmentsService: ApartmentsService,
     private emailService: EmailService,
     private notificationsService: NotificationsService,
+    private inAppNotifications: InAppNotificationsService,
     private geniusPayService: GeniusPayService,
     private configService: ConfigService,
     private settingsService: SettingsService,
@@ -343,6 +345,12 @@ export class ReservationsService {
         .sendCancellationEmail(booking, booking.user.email)
         .catch((err) => console.error('[ReservationsService] Cancellation email error:', err));
     }
+    if (status === 'CANCELLED' && booking.userId) {
+      const itemTitle = booking.vehicle?.title || booking.apartment?.title || 'votre réservation';
+      this.inAppNotifications
+        .notifyReservationCancelled(booking.userId, itemTitle, booking.id)
+        .catch((err) => console.error('[ReservationsService] In-app cancel notif error:', err));
+    }
 
     return booking;
   }
@@ -494,6 +502,7 @@ export class ReservationsService {
   }
 
   private async afterBookingConfirmed(confirmed: any, bookingId: string) {
+    const itemTitle = confirmed?.vehicle?.title || confirmed?.apartment?.title || 'votre réservation';
     if (confirmed?.user?.email) {
       this.emailService.sendReservationConfirmation(confirmed, confirmed.user.email).catch(
         (err) => console.error('Erreur email confirmation réservation:', err),
@@ -508,7 +517,27 @@ export class ReservationsService {
       this.notificationsService
         .sendReservationConfirmation(confirmed.userId, bookingId, confirmed.vehicle ? 'vehicle' : 'apartment')
         .catch((err) => console.error('[verifyPayment] Push notification error:', err));
+      // In-app : client (confirmé) + staff (paiement reçu)
+      this.inAppNotifications
+        .notifyReservationConfirmed(confirmed.userId, itemTitle, bookingId)
+        .catch((err) => console.error('[verifyPayment] In-app client notif error:', err));
+      this.inAppNotifications
+        .notifyPaymentReceived(confirmed.userId, confirmed.totalPrice || 0, bookingId)
+        .catch((err) => console.error('[verifyPayment] In-app staff notif error:', err));
     }
+  }
+
+  /** Notifie le staff qu'une nouvelle réservation PENDING a été créée. */
+  private notifyStaffNewBooking(booking: {
+    id: string;
+    userId: string;
+    vehicle?: { title?: string } | null;
+    apartment?: { title?: string } | null;
+  }) {
+    const itemTitle = booking.vehicle?.title || booking.apartment?.title || 'Service';
+    this.inAppNotifications
+      .notifyNewReservation(booking.userId, itemTitle, booking.id)
+      .catch((err) => console.error('[Reservations] In-app new booking notif error:', err));
   }
 
   /**
@@ -608,6 +637,8 @@ export class ReservationsService {
       },
     });
 
+    this.notifyStaffNewBooking(updated);
+
     return { booking: updated, paymentUrl: result.checkout_url };
   }
 
@@ -686,6 +717,8 @@ export class ReservationsService {
         user: { select: { id: true, email: true, firstName: true, lastName: true, phone: true } },
       },
     });
+
+    this.notifyStaffNewBooking(updated);
 
     return { booking: updated, paymentUrl: result.checkout_url };
   }

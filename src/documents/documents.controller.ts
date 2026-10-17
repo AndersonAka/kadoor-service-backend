@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Res, Request, UseGuards, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Param, Res, Request, UseGuards, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
 import { DocumentsService } from './documents.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -31,9 +31,10 @@ export class DocumentsController {
   }
 
   @Get('contract/:bookingId')
-  @ApiOperation({ summary: 'Générer un contrat PDF pour une réservation' })
+  @ApiOperation({ summary: 'Générer un contrat PDF (véhicules uniquement — pas d’appartement)' })
   @ApiParam({ name: 'bookingId', description: 'ID de la réservation' })
   @ApiResponse({ status: 200, description: 'Contrat PDF généré avec succès', content: { 'application/pdf': {} } })
+  @ApiResponse({ status: 400, description: 'Contrat non disponible pour une réservation appartement' })
   @ApiResponse({ status: 404, description: 'Réservation non trouvée' })
   async getContract(@Param('bookingId') bookingId: string, @Request() req: any, @Res() res: Response) {
     try {
@@ -42,7 +43,11 @@ export class DocumentsController {
       res.setHeader('Content-Disposition', `attachment; filename="contrat-${bookingId}.pdf"`);
       res.send(pdfBuffer);
     } catch (error) {
-      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
+      if (
+        error instanceof NotFoundException
+        || error instanceof ForbiddenException
+        || error instanceof BadRequestException
+      ) {
         throw error;
       }
       throw new NotFoundException('Erreur lors de la génération du contrat');

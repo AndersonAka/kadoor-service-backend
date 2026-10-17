@@ -11,17 +11,21 @@ import {
   Query,
   UseGuards,
   Request,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { InAppNotificationsService } from './in-app-notifications.service';
 
+interface AuthUser {
+  id?: string;
+  userId?: string;
+  role: string;
+}
+
 interface AuthenticatedRequest {
-  user: {
-    id: string;
-    role: string;
-  };
+  user: AuthUser;
 }
 
 /** Staff back-office : voient les notifs `isGlobal` (ops admin). */
@@ -36,6 +40,15 @@ export class NotificationsController {
     return STAFF_ROLES.has(role);
   }
 
+  /** JWT validate renvoie parfois `{ userId }` si le user DB est introuvable. */
+  private resolveUserId(user: AuthUser): string {
+    const userId = user.id || user.userId;
+    if (!userId) {
+      throw new UnauthorizedException('User ID manquant');
+    }
+    return userId;
+  }
+
   @Get()
   async getUserNotifications(
     @Request() req: AuthenticatedRequest,
@@ -43,46 +56,53 @@ export class NotificationsController {
     @Query('limit') limit: string = '20',
     @Query('unreadOnly') unreadOnly: string = 'false',
   ) {
-    const userId = req.user.id;
+    const userId = this.resolveUserId(req.user);
     const isStaff = this.isStaff(req.user.role);
     return this.notificationsService.getUserNotifications(userId, isStaff, {
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page: parseInt(page, 10) || 1,
+      limit: Math.min(parseInt(limit, 10) || 20, 100),
       unreadOnly: unreadOnly === 'true',
     });
   }
 
   @Get('unread-count')
   async getUnreadCount(@Request() req: AuthenticatedRequest) {
-    const userId = req.user.id;
+    const userId = this.resolveUserId(req.user);
     const isStaff = this.isStaff(req.user.role);
     return this.notificationsService.getUnreadCount(userId, isStaff);
   }
 
-  @Patch(':id/read')
-  async markAsRead(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
-    const userId = req.user.id;
-    const isStaff = this.isStaff(req.user.role);
-    return this.notificationsService.markAsRead(id, userId, isStaff);
-  }
-
+  // Routes statiques AVANT les paramètres dynamiques
   @Patch('read-all')
   async markAllAsRead(@Request() req: AuthenticatedRequest) {
-    const userId = req.user.id;
+    const userId = this.resolveUserId(req.user);
     const isStaff = this.isStaff(req.user.role);
     return this.notificationsService.markAllAsRead(userId, isStaff);
   }
 
+  @Patch(':id/read')
+  async markAsRead(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    const userId = this.resolveUserId(req.user);
+    const isStaff = this.isStaff(req.user.role);
+    return this.notificationsService.markAsRead(id, userId, isStaff);
+  }
+
   @Delete(':id')
-  async deleteNotification(@Request() req: AuthenticatedRequest, @Param('id') id: string) {
-    const userId = req.user.id;
+  async deleteNotification(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    const userId = this.resolveUserId(req.user);
     const isStaff = this.isStaff(req.user.role);
     return this.notificationsService.deleteNotification(id, userId, isStaff);
   }
 
   @Delete()
   async deleteAllRead(@Request() req: AuthenticatedRequest) {
-    const userId = req.user.id;
+    const userId = this.resolveUserId(req.user);
     const isStaff = this.isStaff(req.user.role);
     return this.notificationsService.deleteAllRead(userId, isStaff);
   }

@@ -2,12 +2,14 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateIncidentDto, IncidentType } from './dto/create-incident.dto';
 import { EmailService } from '../email/email.service';
+import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 
 @Injectable()
 export class IncidentsService {
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
+    private inAppNotifications: InAppNotificationsService,
   ) {}
 
   /**
@@ -59,6 +61,10 @@ export class IncidentsService {
     this.emailService
       .sendIncidentAcknowledgement(incident)
       .catch((error) => console.error('Erreur envoi email accusé de réception:', error));
+
+    this.inAppNotifications
+      .notifyNewIncident(incident.title, incident.id)
+      .catch((err) => console.error('[IncidentsService] In-app new incident notif error:', err));
 
     return incident;
   }
@@ -154,9 +160,17 @@ export class IncidentsService {
   async updateStatus(id: string, status: string) {
     const incident = await this.findOne(id);
 
-    return this.prisma.incident.update({
+    const updated = await this.prisma.incident.update({
       where: { id },
       data: { status: status as any },
     });
+
+    if (incident.userId) {
+      this.inAppNotifications
+        .notifyIncidentUpdate(incident.userId, incident.title, status)
+        .catch((err) => console.error('[IncidentsService] In-app incident update notif error:', err));
+    }
+
+    return updated;
   }
 }

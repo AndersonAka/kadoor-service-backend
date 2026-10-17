@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import PDFDocument from 'pdfkit';
 import * as fs from 'fs';
@@ -13,6 +13,15 @@ export class DocumentsService {
   private assertOwnerOrStaff(booking: { userId: string }, requesterId: string, requesterRole: string) {
     if (booking.userId !== requesterId && !STAFF_ROLES.includes(requesterRole)) {
       throw new ForbiddenException("Vous n'avez pas accès à ce document");
+    }
+  }
+
+  /** Contrat PDF réservé aux locations véhicule — pas pour les appartements. */
+  private assertVehicleContract(booking: { vehicleId?: string | null; apartmentId?: string | null; vehicle?: unknown }) {
+    if (booking.apartmentId || (!booking.vehicleId && !booking.vehicle)) {
+      throw new BadRequestException(
+        "Aucun contrat n'est délivré pour une réservation d'appartement.",
+      );
     }
   }
 
@@ -67,6 +76,7 @@ export class DocumentsService {
       throw new NotFoundException(`Réservation avec l'ID ${bookingId} non trouvée`);
     }
     this.assertOwnerOrStaff(booking, requesterId, requesterRole);
+    this.assertVehicleContract(booking);
 
     return this.createContractPDF(booking);
   }

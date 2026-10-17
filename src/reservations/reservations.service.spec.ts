@@ -9,6 +9,8 @@ import { VehiclesService } from '../vehicles/vehicles.service';
 import { ApartmentsService } from '../apartments/apartments.service';
 import { SettingsService } from '../settings/settings.service';
 import { PromoCodesService } from '../promo-codes/promo-codes.service';
+import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
+import { AuditService } from '../audit/audit.service';
 import { NotFoundException } from '@nestjs/common';
 
 describe('ReservationsService', () => {
@@ -72,6 +74,17 @@ describe('ReservationsService', () => {
     incrementUsage: jest.fn().mockResolvedValue(undefined),
   };
 
+  const mockInAppNotifications = {
+    notifyNewReservation: jest.fn().mockResolvedValue(undefined),
+    notifyReservationConfirmed: jest.fn().mockResolvedValue(undefined),
+    notifyReservationCancelled: jest.fn().mockResolvedValue(undefined),
+    notifyPaymentReceived: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockAuditService = {
+    record: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -81,10 +94,12 @@ describe('ReservationsService', () => {
         { provide: ApartmentsService, useValue: mockApartmentsService },
         { provide: EmailService, useValue: mockEmailService },
         { provide: NotificationsService, useValue: mockNotificationsService },
+        { provide: InAppNotificationsService, useValue: mockInAppNotifications },
         { provide: GeniusPayService, useValue: mockGeniusPayService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: SettingsService, useValue: mockSettingsService },
         { provide: PromoCodesService, useValue: mockPromoCodesService },
+        { provide: AuditService, useValue: mockAuditService },
       ],
     }).compile();
 
