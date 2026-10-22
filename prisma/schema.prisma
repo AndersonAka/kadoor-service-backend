@@ -251,6 +251,9 @@ model Booking {
   returnTime        String?  // Heure de restitution (HH:MM)
   totalPrice        Float
   status            String   @default("PENDING") // PENDING, CONFIRMED, CANCELLED, COMPLETED
+  /// PUBLIC = parcours client ; INTERNAL = réservation posée par l'admin (occupe les dates, sans paiement)
+  source            String   @default("PUBLIC")
+  internalNote      String?
   paymentReference String?  // Référence GeniusPay (MTX-…)
 
   // Option assurance supplémentaire (véhicule uniquement)
@@ -289,6 +292,8 @@ model Booking {
   depositPaymentMethod String?
   depositCollectedAt   DateTime?
   depositNote          String?
+
+  @@index([source, status])
 }
 
 model Invoice {

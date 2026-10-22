@@ -384,7 +384,10 @@ export class ReservationsService {
         where: { startDate: { gte: start, lte: end } },
       }),
       this.prisma.booking.aggregate({
-        where: { status: { in: ['CONFIRMED', 'COMPLETED'] } },
+        where: {
+          status: { in: ['CONFIRMED', 'COMPLETED'] },
+          source: { not: 'INTERNAL' },
+        },
         _sum: { totalPrice: true },
       }),
       this.prisma.booking.count({ where: overdueWhere }),
@@ -464,6 +467,199 @@ export class ReservationsService {
     return reservation;
   }
 
+  /** Date calendaire (YYYY-MM-DD) : début à 00:00 UTC, fin à 23:59 UTC (Abidjan = GMT). */
+  private parseInternalDate(value: string, endOfDay: boolean): Date | null {
+    if (!value) return null;
+    if (value.includes('T')) {
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(`${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  /**
+   * Passe en historique COMPLETED les réservations internes dont la période est terminée.
+   */
+  private async closeExpiredInternalReservations() {
+    const expired = await this.prisma.booking.findMany({
+      where: {
+        source: 'INTERNAL',
+        status: 'CONFIRMED',
+        endDate: { lt: new Date() },
+      },
+      select: { id: true, vehicleId: true, apartmentId: true, startDate: true, endDate: true },
+    });
+    if (expired.length === 0) return;
+
+    await this.prisma.booking.updateMany({
+      where: { id: { in: expired.map((b) => b.id) } },
+      data: { status: 'COMPLETED' },
+    });
+
+    for (const booking of expired) {
+      await this.audit.record({
+        action: 'booking.internal_completed',
+        entityType: 'Booking',
+        entityId: booking.id,
+        outcome: 'SUCCESS',
+        source: 'SYSTEM',
+        summary: 'Réservation interne clôturée (période terminée)',
+        after: {
+          status: 'COMPLETED',
+          startDate: booking.startDate,
+          endDate: booking.endDate,
+          vehicleId: booking.vehicleId,
+          apartmentId: booking.apartmentId,
+        },
+      });
+    }
+  }
+
+  async listInternalReservations(vehicleId?: string, apartmentId?: string) {
+    await this.closeExpiredInternalReservations();
+    return this.prisma.booking.findMany({
+      where: {
+        source: 'INTERNAL',
+        ...(vehicleId ? { vehicleId } : {}),
+        ...(apartmentId ? { apartmentId } : {}),
+      },
+      orderBy: { startDate: 'desc' },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
+      take: 50,
+    });
+  }
+
+  /**
+   * Réservation interne : occupe le bien sur la période (statut CONFIRMED),
+   * sans paiement ni notification client. Refus si une réservation PENDING ou CONFIRMED chevauche.
+   */
+  async createInternalReservation(
+    actor: { id: string; email?: string | null; role?: string | null },
+    input: { vehicleId?: string; apartmentId?: string; startDate: string; endDate: string; note?: string },
+  ) {
+    const { vehicleId, apartmentId, startDate, endDate } = input;
+    if (!vehicleId && !apartmentId) {
+      throw new BadRequestException('Véhicule ou appartement requis');
+    }
+    if (vehicleId && apartmentId) {
+      throw new BadRequestException('Une réservation interne concerne un seul bien');
+    }
+
+    const start = this.parseInternalDate(startDate, false);
+    const end = this.parseInternalDate(endDate, true);
+    if (!start || !end || start >= end) {
+      throw new BadRequestException('La date de fin doit être après la date de début');
+    }
+
+    await this.closeExpiredInternalReservations();
+
+    const conflict = await this.prisma.booking.findFirst({
+      where: {
+        status: { in: ['PENDING', 'CONFIRMED'] },
+        startDate: { lte: end },
+        endDate: { gte: start },
+        ...(vehicleId ? { vehicleId } : { apartmentId }),
+      },
+      select: { id: true },
+    });
+    if (conflict) {
+      throw new ConflictException(
+        'Une réservation existe déjà sur cette période (en attente ou confirmée).',
+      );
+    }
+
+    if (vehicleId) {
+      const vehicle = await this.prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { id: true } });
+      if (!vehicle) throw new NotFoundException('Véhicule introuvable');
+    } else {
+      const apartment = await this.prisma.apartment.findUnique({
+        where: { id: apartmentId },
+        select: { id: true },
+      });
+      if (!apartment) throw new NotFoundException('Appartement introuvable');
+    }
+
+    const booking = await this.prisma.booking.create({
+      data: {
+        startDate: start,
+        endDate: end,
+        totalPrice: 0,
+        status: 'CONFIRMED',
+        source: 'INTERNAL',
+        internalNote: input.note?.trim() || null,
+        userId: actor.id,
+        vehicleId: vehicleId || null,
+        apartmentId: apartmentId || null,
+      },
+      include: {
+        vehicle: { select: { id: true, title: true } },
+        apartment: { select: { id: true, title: true } },
+        user: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
+    });
+
+    const label = booking.vehicle?.title || booking.apartment?.title || booking.id;
+    await this.audit.record({
+      action: 'booking.internal_create',
+      entityType: 'Booking',
+      entityId: booking.id,
+      actorId: actor.id,
+      actorEmail: actor.email || undefined,
+      actorRole: actor.role || undefined,
+      outcome: 'SUCCESS',
+      source: 'ADMIN_UI',
+      summary: `Réservation interne — ${label}`,
+      after: {
+        startDate: booking.startDate,
+        endDate: booking.endDate,
+        vehicleId: booking.vehicleId,
+        apartmentId: booking.apartmentId,
+        note: booking.internalNote,
+        status: booking.status,
+      },
+    });
+
+    return booking;
+  }
+
+  async cancelInternalReservation(
+    id: string,
+    actor: { id: string; email?: string | null; role?: string | null },
+  ) {
+    const booking = await this.prisma.booking.findUnique({ where: { id } });
+    if (!booking || booking.source !== 'INTERNAL') {
+      throw new NotFoundException('Réservation interne introuvable');
+    }
+    if (booking.status === 'COMPLETED') {
+      throw new BadRequestException('Cette réservation interne est déjà dans l\'historique');
+    }
+    if (booking.status === 'CANCELLED') return booking;
+
+    const updated = await this.prisma.booking.update({
+      where: { id },
+      data: { status: 'CANCELLED' },
+    });
+
+    await this.audit.record({
+      action: 'booking.internal_cancel',
+      entityType: 'Booking',
+      entityId: id,
+      actorId: actor.id,
+      actorEmail: actor.email || undefined,
+      actorRole: actor.role || undefined,
+      outcome: 'SUCCESS',
+      source: 'ADMIN_UI',
+      summary: 'Réservation interne annulée',
+      before: { status: booking.status, startDate: booking.startDate, endDate: booking.endDate },
+      after: { status: 'CANCELLED' },
+    });
+
+    return updated;
+  }
+
   /**
    * Met à jour le statut d'une réservation
    */
@@ -471,6 +667,14 @@ export class ReservationsService {
     const validStatuses = ['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED'];
     if (!validStatuses.includes(status)) {
       throw new BadRequestException(`Statut invalide. Statuts valides: ${validStatuses.join(', ')}`);
+    }
+
+    const existing = await this.prisma.booking.findUnique({ where: { id }, select: { source: true } });
+    if (!existing) throw new NotFoundException(`Réservation avec l'ID ${id} non trouvée`);
+    if (existing.source === 'INTERNAL') {
+      throw new BadRequestException(
+        'Une réservation interne se gère depuis la fiche du bien (annulation dédiée).',
+      );
     }
 
     const booking = await this.prisma.booking.update({
@@ -483,12 +687,12 @@ export class ReservationsService {
       },
     });
 
-    if (status === 'CANCELLED' && booking.user?.email) {
+    if (status === 'CANCELLED' && booking.source !== 'INTERNAL' && booking.user?.email) {
       this.emailService
         .sendCancellationEmail(booking, booking.user.email)
         .catch((err) => console.error('[ReservationsService] Cancellation email error:', err));
     }
-    if (status === 'CANCELLED' && booking.userId) {
+    if (status === 'CANCELLED' && booking.source !== 'INTERNAL' && booking.userId) {
       const itemTitle = booking.vehicle?.title || booking.apartment?.title || 'votre réservation';
       this.inAppNotifications
         .notifyReservationCancelled(booking.userId, itemTitle, booking.id)

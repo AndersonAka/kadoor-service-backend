@@ -70,6 +70,7 @@ export class AdminService {
       this.prisma.booking.aggregate({
         where: {
           status: { in: ['CONFIRMED', 'COMPLETED'] },
+          source: { not: 'INTERNAL' },
           createdAt: { gte: startOfDay, lt: endOfDay },
         },
         _sum: { totalPrice: true },
@@ -82,6 +83,7 @@ export class AdminService {
         status: {
           in: ['CONFIRMED', 'COMPLETED'],
         },
+        source: { not: 'INTERNAL' },
       },
       _sum: {
         totalPrice: true,
@@ -93,6 +95,7 @@ export class AdminService {
         status: {
           in: ['CONFIRMED', 'COMPLETED'],
         },
+        source: { not: 'INTERNAL' },
         createdAt: {
           gte: startOfMonth,
         },
@@ -107,6 +110,7 @@ export class AdminService {
         status: {
           in: ['CONFIRMED', 'COMPLETED'],
         },
+        source: { not: 'INTERNAL' },
         createdAt: {
           gte: last30Days,
         },
@@ -228,9 +232,8 @@ export class AdminService {
 
       const revenue = await this.prisma.booking.aggregate({
         where: {
-          status: {
-            in: ['CONFIRMED', 'COMPLETED'],
-          },
+          status: { in: ['CONFIRMED', 'COMPLETED'] },
+          source: { not: 'INTERNAL' },
           createdAt: {
             gte: monthStart,
             lte: monthEnd,
@@ -261,9 +264,8 @@ export class AdminService {
           select: {
             bookings: {
               where: {
-                status: {
-                  in: ['CONFIRMED', 'COMPLETED'],
-                },
+                status: { in: ['CONFIRMED', 'COMPLETED'] },
+                source: { not: 'INTERNAL' },
               },
             },
           },
@@ -307,9 +309,8 @@ export class AdminService {
           select: {
             bookings: {
               where: {
-                status: {
-                  in: ['CONFIRMED', 'COMPLETED'],
-                },
+                status: { in: ['CONFIRMED', 'COMPLETED'] },
+                source: { not: 'INTERNAL' },
               },
             },
           },
@@ -371,6 +372,7 @@ export class AdminService {
         status: {
           in: ['CONFIRMED', 'COMPLETED'],
         },
+        source: { not: 'INTERNAL' },
       },
       select: {
         createdAt: true,

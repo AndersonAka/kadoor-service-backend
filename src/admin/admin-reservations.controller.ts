@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Query, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Param, Query, Body, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
 import { ReservationsService } from '../reservations/reservations.service';
 import { AdminQueryDto } from './dto/admin-query.dto';
@@ -29,6 +29,37 @@ export class AdminReservationsController {
       type: query.type,
       period: query.period,
     });
+  }
+
+  @Get('internal')
+  @Roles('ADMIN', 'MANAGER')
+  @ApiOperation({ summary: 'Réservations internes d\'un bien' })
+  listInternal(
+    @Query('vehicleId') vehicleId?: string,
+    @Query('apartmentId') apartmentId?: string,
+  ) {
+    return this.reservationsService.listInternalReservations(vehicleId, apartmentId);
+  }
+
+  @Post('internal')
+  @Roles('ADMIN', 'MANAGER')
+  @ApiOperation({ summary: 'Créer une réservation interne (occupe les dates côté public)' })
+  createInternal(
+    @Request() req: { user: { id: string; email?: string; role?: string } },
+    @Body()
+    body: { vehicleId?: string; apartmentId?: string; startDate: string; endDate: string; note?: string },
+  ) {
+    return this.reservationsService.createInternalReservation(req.user, body);
+  }
+
+  @Patch('internal/:id/cancel')
+  @Roles('ADMIN', 'MANAGER')
+  @ApiOperation({ summary: 'Annuler une réservation interne encore active' })
+  cancelInternal(
+    @Request() req: { user: { id: string; email?: string; role?: string } },
+    @Param('id') id: string,
+  ) {
+    return this.reservationsService.cancelInternalReservation(id, req.user);
   }
 
   @Get(':id')
