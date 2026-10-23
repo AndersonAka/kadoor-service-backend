@@ -661,6 +661,95 @@ export class ReservationsService {
   }
 
   /**
+   * Corrige une réservation interne (dates, note) sans en créer une nouvelle.
+   * Le bien ne change pas. Une période déjà passée reste en historique COMPLETED.
+   */
+  async updateInternalReservation(
+    id: string,
+    actor: { id: string; email?: string | null; role?: string | null },
+    input: { startDate: string; endDate: string; note?: string },
+  ) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: {
+        vehicle: { select: { id: true, title: true } },
+        apartment: { select: { id: true, title: true } },
+      },
+    });
+    if (!booking || booking.source !== 'INTERNAL') {
+      throw new NotFoundException('Réservation interne introuvable');
+    }
+    if (booking.status === 'CANCELLED') {
+      throw new BadRequestException('Une réservation interne annulée ne se modifie pas');
+    }
+
+    const start = this.parseInternalDate(input.startDate, false);
+    const end = this.parseInternalDate(input.endDate, true);
+    if (!start || !end || start >= end) {
+      throw new BadRequestException('La date de fin doit être après la date de début');
+    }
+
+    await this.closeExpiredInternalReservations();
+
+    const conflict = await this.prisma.booking.findFirst({
+      where: {
+        id: { not: id },
+        status: { in: ['PENDING', 'CONFIRMED'] },
+        startDate: { lte: end },
+        endDate: { gte: start },
+        ...(booking.vehicleId ? { vehicleId: booking.vehicleId } : { apartmentId: booking.apartmentId }),
+      },
+      select: { id: true },
+    });
+    if (conflict) {
+      throw new ConflictException(
+        'Une réservation existe déjà sur cette période (en attente ou confirmée).',
+      );
+    }
+
+    const status = end < new Date() ? 'COMPLETED' : 'CONFIRMED';
+    const updated = await this.prisma.booking.update({
+      where: { id },
+      data: {
+        startDate: start,
+        endDate: end,
+        internalNote: input.note?.trim() || null,
+        status,
+      },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
+    });
+
+    const label = booking.vehicle?.title || booking.apartment?.title || booking.id;
+    await this.audit.record({
+      action: 'booking.internal_update',
+      entityType: 'Booking',
+      entityId: id,
+      actorId: actor.id,
+      actorEmail: actor.email || undefined,
+      actorRole: actor.role || undefined,
+      outcome: 'SUCCESS',
+      source: 'ADMIN_UI',
+      summary: `Réservation interne corrigée — ${label}`,
+      before: {
+        startDate: booking.startDate,
+        endDate: booking.endDate,
+        note: booking.internalNote,
+        status: booking.status,
+      },
+      after: {
+        startDate: updated.startDate,
+        endDate: updated.endDate,
+        note: updated.internalNote,
+        status: updated.status,
+      },
+    });
+
+    return updated;
+  }
+
+  /**
    * Met à jour le statut d'une réservation
    */
   async updateStatus(id: string, status: string) {
@@ -673,7 +762,7 @@ export class ReservationsService {
     if (!existing) throw new NotFoundException(`Réservation avec l'ID ${id} non trouvée`);
     if (existing.source === 'INTERNAL') {
       throw new BadRequestException(
-        'Une réservation interne se gère depuis la fiche du bien (annulation dédiée).',
+        'Une réservation interne se corrige ou s\'annule depuis la fiche du bien.',
       );
     }
 

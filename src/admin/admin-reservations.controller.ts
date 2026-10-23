@@ -52,6 +52,17 @@ export class AdminReservationsController {
     return this.reservationsService.createInternalReservation(req.user, body);
   }
 
+  @Patch('internal/:id')
+  @Roles('ADMIN', 'MANAGER')
+  @ApiOperation({ summary: 'Corriger les dates ou la note d\'une réservation interne' })
+  updateInternal(
+    @Request() req: { user: { id: string; email?: string; role?: string } },
+    @Param('id') id: string,
+    @Body() body: { startDate: string; endDate: string; note?: string },
+  ) {
+    return this.reservationsService.updateInternalReservation(id, req.user, body);
+  }
+
   @Patch('internal/:id/cancel')
   @Roles('ADMIN', 'MANAGER')
   @ApiOperation({ summary: 'Annuler une réservation interne encore active' })
