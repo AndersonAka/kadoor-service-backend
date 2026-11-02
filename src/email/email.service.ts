@@ -544,6 +544,35 @@ export class EmailService {
 </body></html>`;
   }
 
+  async sendPartnerApplicationReceived(email: string, name: string): Promise<void> {
+    const safeName = name || 'Bonjour';
+    const html = `
+      <div style="font-family:Arial,sans-serif;color:#333;max-width:600px;margin:0 auto;">
+        <h1 style="color:#b91c1c;font-size:22px;">Demande bien reçue</h1>
+        <p>${safeName},</p>
+        <p>Nous avons bien reçu votre demande pour devenir partenaire Kadoor Service.</p>
+        <p>Elle est en cours d'examen. Vous ne pouvez pas encore vous connecter : un mot de passe vous sera envoyé par e-mail après validation.</p>
+        <p style="font-size:13px;color:#666;">KADOOR SERVICE · Abidjan</p>
+      </div>`;
+    await this.sendEmail(email, 'Demande partenaire reçue — Kadoor Service', html, 'Votre dossier est en cours d\'examen');
+  }
+
+  async sendPartnerAccessEmail(email: string, name: string, password: string): Promise<void> {
+    const safeName = name || 'Bonjour';
+    const loginUrl = `${this.frontendUrl}/fr/login`;
+    const html = `
+      <div style="font-family:Arial,sans-serif;color:#333;max-width:600px;margin:0 auto;">
+        <h1 style="color:#b91c1c;font-size:22px;">Votre espace partenaire est ouvert</h1>
+        <p>${safeName},</p>
+        <p>Votre demande a été validée. Voici votre accès temporaire :</p>
+        <p><strong>E-mail :</strong> ${email}<br><strong>Mot de passe :</strong> ${password}</p>
+        <p>À la première connexion, vous devrez choisir un nouveau mot de passe.</p>
+        <p><a href="${loginUrl}" style="display:inline-block;background:#b91c1c;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">Se connecter</a></p>
+        <p style="font-size:13px;color:#666;">KADOOR SERVICE · Abidjan</p>
+      </div>`;
+    await this.sendEmail(email, 'Votre accès partenaire Kadoor Service', html, 'Votre mot de passe temporaire');
+  }
+
   /**
    * Envoie un email via OneSignal
    */

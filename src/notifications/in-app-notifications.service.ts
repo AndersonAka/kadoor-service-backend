@@ -325,6 +325,18 @@ export class InAppNotificationsService {
     });
   }
 
+  async notifyPartnerApplication(name: string) {
+    return this.createNotification({
+      type: 'SYSTEM',
+      titleFr: 'Nouvelle demande partenaire',
+      titleEn: 'New partner application',
+      messageFr: `${name} souhaite devenir partenaire.`,
+      messageEn: `${name} applied to become a partner.`,
+      link: '/admin/partners',
+      isGlobal: true,
+    });
+  }
+
   async notifyNewIncident(incidentTitle: string, _incidentId: string) {
     return this.createNotification({
       type: 'INCIDENT_NEW',
