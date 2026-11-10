@@ -54,9 +54,9 @@ export class ApartmentsService {
       where.status = query.status;
     }
 
-    // Filtre par type
+    // Filtre par type (Studio, T1, Villa… — comparaison insensible à la casse)
     if (type) {
-      where.type = type;
+      where.type = { equals: type, mode: 'insensitive' };
     }
 
     // Filtre par ville

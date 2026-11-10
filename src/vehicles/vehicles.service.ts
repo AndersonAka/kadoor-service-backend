@@ -7,8 +7,20 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ListingModerationService } from '../listings/listing-moderation.service';
 import { ListingStatus, Prisma, Vehicle, VehicleTypePricing } from '@prisma/client';
 
+/** Champs tarifaires exposés aux clients (forme historique `typePricing`). */
+export type VehiclePricingSnapshot = {
+  tier1MileageDailyAmount: number;
+  tier2MileageDailyAmount: number;
+  tier3MileageDailyAmount: number;
+  overagePricePerKm: number;
+  insuranceAmount: number;
+  insuranceDiscountPercent: number;
+  /** Présent uniquement pour les grilles-modèles par type */
+  vehicleType?: string;
+};
+
 export type VehicleWithPricing = Vehicle & {
-  typePricing: VehicleTypePricing | null;
+  typePricing: VehiclePricingSnapshot;
   fromPriceTier1: number;
 };
 
@@ -19,9 +31,20 @@ export class VehiclesService {
     private moderation: ListingModerationService,
   ) {}
 
-  /** Montant journalier du forfait « moins de 150 km/j », affichage « à partir de » (forfait km) */
-  static tier1DailyCost(p: Pick<VehicleTypePricing, 'tier1MileageDailyAmount'>): number {
+  /** Montant journalier du forfait « moins de 150 km/j », affichage « à partir de » */
+  static tier1DailyCost(p: Pick<VehiclePricingSnapshot, 'tier1MileageDailyAmount'>): number {
     return Math.round(p.tier1MileageDailyAmount);
+  }
+
+  static pricingFromVehicle(vehicle: Vehicle): VehiclePricingSnapshot {
+    return {
+      tier1MileageDailyAmount: vehicle.tier1MileageDailyAmount,
+      tier2MileageDailyAmount: vehicle.tier2MileageDailyAmount,
+      tier3MileageDailyAmount: vehicle.tier3MileageDailyAmount,
+      overagePricePerKm: vehicle.overagePricePerKm,
+      insuranceAmount: vehicle.insuranceAmount,
+      insuranceDiscountPercent: vehicle.insuranceDiscountPercent,
+    };
   }
 
   /**
@@ -35,6 +58,7 @@ export class VehiclesService {
     });
   }
 
+  /** Grilles-modèles par type (préremplissage admin uniquement — plus utilisées pour facturer). */
   async findAllTypePricing(): Promise<VehicleTypePricing[]> {
     return this.prisma.vehicleTypePricing.findMany({ orderBy: { vehicleType: 'asc' } });
   }
@@ -56,7 +80,7 @@ export class VehiclesService {
     });
   }
 
-  /** Supprime la grille d’un type si aucun véhicule ne référence ce `Vehicle.type`. */
+  /** Supprime la grille-modèle d’un type si aucun véhicule ne référence ce `Vehicle.type`. */
   async deleteTypePricing(vehicleType: string): Promise<{ deleted: true }> {
     const count = await this.prisma.vehicle.count({ where: { type: vehicleType } });
     if (count > 0) {
@@ -75,28 +99,17 @@ export class VehiclesService {
     return { deleted: true };
   }
 
-  private async loadPricingForTypes(types: string[]): Promise<Map<string, VehicleTypePricing>> {
-    const unique = [...new Set(types.filter(Boolean))];
-    if (unique.length === 0) return new Map();
-    const rows = await this.prisma.vehicleTypePricing.findMany({
-      where: { vehicleType: { in: unique } },
-    });
-    return new Map(rows.map((r) => [r.vehicleType, r]));
-  }
-
-  private enrichVehicle(vehicle: Vehicle, pricingMap: Map<string, VehicleTypePricing>): VehicleWithPricing {
-    const typePricing = pricingMap.get(vehicle.type) ?? null;
-    const fromPriceTier1 = typePricing ? VehiclesService.tier1DailyCost(typePricing) : 0;
+  private enrichVehicle(vehicle: Vehicle): VehicleWithPricing {
+    const typePricing = VehiclesService.pricingFromVehicle(vehicle);
     return {
       ...vehicle,
       typePricing,
-      fromPriceTier1,
+      fromPriceTier1: VehiclesService.tier1DailyCost(typePricing),
     };
   }
 
-  private async enrichMany(vehicles: Vehicle[]): Promise<VehicleWithPricing[]> {
-    const map = await this.loadPricingForTypes(vehicles.map((v) => v.type));
-    return vehicles.map((v) => this.enrichVehicle(v, map));
+  private enrichMany(vehicles: Vehicle[]): VehicleWithPricing[] {
+    return vehicles.map((v) => this.enrichVehicle(v));
   }
 
   async findAll(query: QueryVehiclesDto) {
@@ -165,31 +178,14 @@ export class VehiclesService {
       }
     }
 
-    if (minPrice !== undefined || maxPrice !== undefined) {
-      const pricings = await this.prisma.vehicleTypePricing.findMany();
-      let matchingTypes = pricings
-        .filter((p) => {
-          const t1 = VehiclesService.tier1DailyCost(p);
-          if (minPrice !== undefined && t1 < minPrice) return false;
-          if (maxPrice !== undefined && t1 > maxPrice) return false;
-          return true;
-        })
-        .map((p) => p.vehicleType);
-
-      if (type) {
-        matchingTypes = matchingTypes.filter((t) => t === type);
-      }
-
-      if (matchingTypes.length === 0) {
-        return {
-          data: [],
-          meta: { total: 0, page, limit, totalPages: 0 },
-        };
-      }
-
-      where.type = type ? type : { in: matchingTypes };
-    } else if (type) {
+    if (type) {
       where.type = type;
+    }
+
+    if (minPrice !== undefined || maxPrice !== undefined) {
+      where.tier1MileageDailyAmount = {};
+      if (minPrice !== undefined) where.tier1MileageDailyAmount.gte = minPrice;
+      if (maxPrice !== undefined) where.tier1MileageDailyAmount.lte = maxPrice;
     }
 
     if (search) {
@@ -218,7 +214,7 @@ export class VehiclesService {
       this.prisma.vehicle.count({ where }),
     ]);
 
-    const data = await this.enrichMany(vehicles);
+    const data = this.enrichMany(vehicles);
 
     return {
       data,
@@ -255,9 +251,8 @@ export class VehiclesService {
     }
 
     const { bookings, ...rest } = vehicle;
-    const map = await this.loadPricingForTypes([rest.type]);
-    const enriched = this.enrichVehicle(rest as Vehicle, map);
-    return { ...enriched, bookings };
+    const enriched = this.enrichVehicle(rest as Vehicle);
+    return { ...enriched, bookings } as VehicleWithPricing & { bookings: typeof bookings };
   }
 
   async checkAvailability(id: string, startDate: string, endDate: string) {

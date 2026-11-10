@@ -161,18 +161,14 @@ export class DocumentsService {
 
     let vehicleDailyRate = 0;
     if (booking.vehicle) {
-      const rateRow = await this.prisma.vehicleTypePricing.findUnique({
-        where: { vehicleType: booking.vehicle.type },
-      });
+      const v = booking.vehicle;
       const tier =
         booking.mileagePackage === 'TIER2' || booking.mileagePackage === 'TIER3'
           ? booking.mileagePackage
           : 'TIER1';
-      if (rateRow) {
-        if (tier === 'TIER1') vehicleDailyRate = rateRow.tier1MileageDailyAmount;
-        else if (tier === 'TIER2') vehicleDailyRate = rateRow.tier2MileageDailyAmount;
-        else vehicleDailyRate = rateRow.tier3MileageDailyAmount;
-      }
+      if (tier === 'TIER1') vehicleDailyRate = v.tier1MileageDailyAmount;
+      else if (tier === 'TIER2') vehicleDailyRate = v.tier2MileageDailyAmount;
+      else vehicleDailyRate = v.tier3MileageDailyAmount;
     }
 
     return this.createInvoicePDF(booking, vehicleDailyRate);

@@ -2,16 +2,11 @@ import { IsOptional, IsString, IsNumber, IsEnum, Min, Max, IsDateString, IsBoole
 import { Type, Transform } from 'class-transformer';
 import { ListingStatus } from '@prisma/client';
 
-export enum ApartmentType {
-  TYPE_1 = 'TYPE_1',
-  TYPE_2 = 'TYPE_2',
-  TYPE_3 = 'TYPE_3',
-}
-
 export class QueryApartmentsDto {
+  /** Type de logement libre (Studio, T1, T2, Villa, Duplex, …) — aligné sur `Apartment.type` */
   @IsOptional()
-  @IsEnum(ApartmentType)
-  type?: ApartmentType;
+  @IsString()
+  type?: string;
 
   @IsOptional()
   @IsString()

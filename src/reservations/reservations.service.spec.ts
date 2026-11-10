@@ -141,12 +141,12 @@ describe('ReservationsService', () => {
     });
   });
 
-  describe('computeInsurance (VehicleTypePricing only)', () => {
-    it('applies discount then adds insurance from type grid', () => {
+  describe('computeInsurance (vehicle pricing)', () => {
+    it('applies discount then adds insurance from vehicle grid', () => {
       const typePricing = {
         insuranceAmount: 20_000,
         insuranceDiscountPercent: 10,
-      } as import('@prisma/client').VehicleTypePricing;
+      };
 
       const r = (service as any).computeInsurance(100_000, typePricing);
       expect(r.insuranceDiscount).toBe(10_000);

@@ -1,10 +1,9 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { VehicleTypePricing } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReservationVehicleDto } from './dto/create-reservation-vehicle.dto';
 import { CreateReservationApartmentDto } from './dto/create-reservation-apartment.dto';
-import { VehiclesService } from '../vehicles/vehicles.service';
+import { VehiclesService, VehiclePricingSnapshot } from '../vehicles/vehicles.service';
 import { ApartmentsService } from '../apartments/apartments.service';
 import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -38,38 +37,69 @@ export class ReservationsService {
     private audit: AuditService,
   ) {}
 
-  /**
-   * Calcule le nombre de jours entre deux dates
-   */
-  private async getVehicleTypePricing(vehicleType: string): Promise<VehicleTypePricing | null> {
-    return this.prisma.vehicleTypePricing.findUnique({ where: { vehicleType } });
-  }
-
-  private requireVehicleTypePricing(vehicleType: string, row: VehicleTypePricing | null): VehicleTypePricing {
-    if (!row) {
+  /** Tarification du véhicule (champs sur Vehicle). */
+  private requireVehiclePricing(
+    vehicle: {
+      title?: string;
+      tier1MileageDailyAmount?: number;
+      tier2MileageDailyAmount?: number;
+      tier3MileageDailyAmount?: number;
+      overagePricePerKm?: number;
+      insuranceAmount?: number;
+      insuranceDiscountPercent?: number;
+      typePricing?: VehiclePricingSnapshot | null;
+    },
+  ): VehiclePricingSnapshot {
+    if (vehicle.typePricing) return vehicle.typePricing;
+    if (
+      vehicle.tier1MileageDailyAmount == null ||
+      vehicle.tier2MileageDailyAmount == null ||
+      vehicle.tier3MileageDailyAmount == null
+    ) {
       throw new BadRequestException(
-        `Grille tarifaire introuvable pour le type « ${vehicleType} ». Créez-la dans l’admin (tarifs par type).`,
+        `Tarification introuvable pour le véhicule « ${vehicle.title || 'sans titre'} ». Renseignez les forfaits sur la fiche véhicule.`,
       );
     }
-    return row;
+    return {
+      tier1MileageDailyAmount: vehicle.tier1MileageDailyAmount,
+      tier2MileageDailyAmount: vehicle.tier2MileageDailyAmount,
+      tier3MileageDailyAmount: vehicle.tier3MileageDailyAmount,
+      overagePricePerKm: vehicle.overagePricePerKm ?? 350,
+      insuranceAmount: vehicle.insuranceAmount ?? 15000,
+      insuranceDiscountPercent: vehicle.insuranceDiscountPercent ?? 0,
+    };
   }
 
   /** Enrichit le véhicule lié (affichage admin / détail réservation) */
-  private async attachVehiclePricing<T extends { type: string }>(vehicle: T | null) {
+  private attachVehiclePricing<T extends {
+    tier1MileageDailyAmount?: number;
+    tier2MileageDailyAmount?: number;
+    tier3MileageDailyAmount?: number;
+    overagePricePerKm?: number;
+    insuranceAmount?: number;
+    insuranceDiscountPercent?: number;
+  }>(vehicle: T | null) {
     if (!vehicle) return null;
-    const p = await this.prisma.vehicleTypePricing.findUnique({ where: { vehicleType: vehicle.type } });
-    if (!p) {
+    if (vehicle.tier1MileageDailyAmount == null) {
       return { ...vehicle, typePricing: null, fromPriceTier1: null } as T & {
-        typePricing: VehicleTypePricing | null;
+        typePricing: VehiclePricingSnapshot | null;
         fromPriceTier1: number | null;
       };
     }
+    const typePricing: VehiclePricingSnapshot = {
+      tier1MileageDailyAmount: vehicle.tier1MileageDailyAmount,
+      tier2MileageDailyAmount: vehicle.tier2MileageDailyAmount ?? 0,
+      tier3MileageDailyAmount: vehicle.tier3MileageDailyAmount ?? 0,
+      overagePricePerKm: vehicle.overagePricePerKm ?? 350,
+      insuranceAmount: vehicle.insuranceAmount ?? 15000,
+      insuranceDiscountPercent: vehicle.insuranceDiscountPercent ?? 0,
+    };
     return {
       ...vehicle,
-      typePricing: p,
-      fromPriceTier1: Math.round(p.tier1MileageDailyAmount),
+      typePricing,
+      fromPriceTier1: Math.round(typePricing.tier1MileageDailyAmount),
     } as T & {
-      typePricing: VehicleTypePricing;
+      typePricing: VehiclePricingSnapshot;
       fromPriceTier1: number;
     };
   }
@@ -125,8 +155,7 @@ export class ReservationsService {
       throw new NotFoundException('Véhicule non trouvé');
     }
 
-    const typePricing = await this.getVehicleTypePricing(vehicle.type);
-    const pricing = this.requireVehicleTypePricing(vehicle.type, typePricing);
+    const pricing = this.requireVehiclePricing(vehicle);
 
     const days = this.calculateDays(start, end);
     const tier = this.resolveVehicleMileageTier(dto.mileagePackage);
@@ -461,7 +490,7 @@ export class ReservationsService {
     }
 
     if (reservation.vehicle) {
-      reservation.vehicle = (await this.attachVehiclePricing(reservation.vehicle)) as typeof reservation.vehicle;
+      reservation.vehicle = this.attachVehiclePricing(reservation.vehicle) as typeof reservation.vehicle;
     }
 
     return reservation;
@@ -812,19 +841,19 @@ export class ReservationsService {
   }
 
   /**
-   * Supplément assurance : montant fixe et % de réduction issus uniquement de VehicleTypePricing.
+   * Supplément assurance : montant fixe et % de réduction issus de la grille du véhicule.
    * totalWithInsurance = basePrice − réduction + assurance
    */
   private computeInsurance(
     basePrice: number,
-    typePricing: VehicleTypePricing,
+    pricing: VehiclePricingSnapshot,
   ): {
     insurancePrice: number;
     insuranceDiscount: number;
     totalWithInsurance: number;
   } {
-    const insurancePrice = typePricing.insuranceAmount;
-    const discountPercent = typePricing.insuranceDiscountPercent;
+    const insurancePrice = pricing.insuranceAmount;
+    const discountPercent = pricing.insuranceDiscountPercent;
     const insuranceDiscount = Math.round(basePrice * (discountPercent / 100));
     const totalWithInsurance = basePrice - insuranceDiscount + insurancePrice;
     return { insurancePrice, insuranceDiscount, totalWithInsurance };
@@ -837,16 +866,16 @@ export class ReservationsService {
   private async computeMileageCost(
     tier: 'TIER1' | 'TIER2' | 'TIER3',
     days: number,
-    typePricing?: VehicleTypePricing | null,
+    pricing?: VehiclePricingSnapshot | null,
   ): Promise<number> {
-    if (typePricing) {
+    if (pricing) {
       if (tier === 'TIER1') {
-        return Math.round(typePricing.tier1MileageDailyAmount * days);
+        return Math.round(pricing.tier1MileageDailyAmount * days);
       }
       if (tier === 'TIER2') {
-        return Math.round(typePricing.tier2MileageDailyAmount * days);
+        return Math.round(pricing.tier2MileageDailyAmount * days);
       }
-      return Math.round(typePricing.tier3MileageDailyAmount * days);
+      return Math.round(pricing.tier3MileageDailyAmount * days);
     }
 
     let kmKey: string, priceKey: string, defaultKm: number, defaultPrice: number;
@@ -1000,13 +1029,12 @@ export class ReservationsService {
     const vehicle = await this.vehiclesService.findOne(vehicleId);
     if (!vehicle) throw new NotFoundException('Véhicule non trouvé');
 
-    const typePricingRow = await this.getVehicleTypePricing(vehicle.type);
-    const typePricing = this.requireVehicleTypePricing(vehicle.type, typePricingRow);
+    const pricing = this.requireVehiclePricing(vehicle);
 
     const days = this.calculateDays(start, end);
 
     const tier = this.resolveVehicleMileageTier(dto.mileagePackage);
-    const mileagePackageCost = await this.computeMileageCost(tier, days, typePricing);
+    const mileagePackageCost = await this.computeMileageCost(tier, days, pricing);
     const priceWithMileage = mileagePackageCost;
 
     let totalPrice = priceWithMileage;
@@ -1014,7 +1042,7 @@ export class ReservationsService {
     let insuranceDiscount: number | null = null;
 
     if (dto.hasInsurance) {
-      const insurance = this.computeInsurance(priceWithMileage, typePricing);
+      const insurance = this.computeInsurance(priceWithMileage, pricing);
       totalPrice = insurance.totalWithInsurance;
       insurancePrice = insurance.insurancePrice;
       insuranceDiscount = insurance.insuranceDiscount;

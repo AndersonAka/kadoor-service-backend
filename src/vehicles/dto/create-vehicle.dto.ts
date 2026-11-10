@@ -1,4 +1,5 @@
-import { IsString, IsNumber, IsBoolean, IsArray, IsOptional } from 'class-validator';
+import { IsString, IsNumber, IsBoolean, IsArray, IsOptional, Min, Max } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateVehicleDto {
   @IsString()
@@ -19,6 +20,7 @@ export class CreateVehicleDto {
   model?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   year?: number;
 
@@ -31,6 +33,7 @@ export class CreateVehicleDto {
   transmission?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   seats?: number;
 
@@ -56,4 +59,42 @@ export class CreateVehicleDto {
   @IsOptional()
   @IsString()
   partnerId?: string;
+
+  /** Forfait moins de 150 km/j — montant journalier (FCFA), propre au véhicule */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  tier1MileageDailyAmount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  tier2MileageDailyAmount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  tier3MileageDailyAmount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  overagePricePerKm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  insuranceAmount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  insuranceDiscountPercent?: number;
 }

@@ -172,6 +172,13 @@ model Vehicle {
   isAvailable Boolean  @default(true)
   images      String[]
   features    String[]
+  /// Tarification propre au véhicule (plus partagée par type)
+  tier1MileageDailyAmount  Float    @default(30000)
+  tier2MileageDailyAmount  Float    @default(45000)
+  tier3MileageDailyAmount  Float    @default(70000)
+  overagePricePerKm        Float    @default(350)
+  insuranceAmount          Float    @default(15000)
+  insuranceDiscountPercent Float    @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
