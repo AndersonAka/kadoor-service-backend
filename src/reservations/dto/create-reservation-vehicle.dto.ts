@@ -46,6 +46,11 @@ export class CreateReservationVehicleDto {
   @IsBoolean()
   hasInsurance?: boolean;
 
+  /** Option chauffeur (forcé à true si le véhicule l’exige) */
+  @IsOptional()
+  @IsBoolean()
+  hasDriver?: boolean;
+
   @IsOptional()
   @IsString()
   @IsIn(['TIER1', 'TIER2', 'TIER3'])

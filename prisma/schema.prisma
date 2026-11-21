@@ -172,6 +172,12 @@ model Vehicle {
   isAvailable Boolean  @default(true)
   images      String[]
   features    String[]
+  /// Option chauffeur proposée à la réservation
+  withDriver       Boolean  @default(false)
+  /// Si vrai : la réservation n'est possible qu'avec chauffeur
+  driverRequired   Boolean  @default(false)
+  /// Supplément chauffeur — montant journalier (FCFA), paramétrable par véhicule
+  driverDailyFee   Float    @default(10000)
   /// Tarification propre au véhicule (plus partagée par type)
   tier1MileageDailyAmount  Float    @default(30000)
   tier2MileageDailyAmount  Float    @default(45000)
@@ -267,6 +273,10 @@ model Booking {
   hasInsurance      Boolean  @default(false)
   insurancePrice    Float?   // Montant fixe de l'assurance ajouté au total
   insuranceDiscount Float?   // Montant de réduction appliqué sur le prix de base
+
+  // Option chauffeur (véhicule uniquement)
+  hasDriver         Boolean  @default(false)
+  driverFee         Float?   // Coût total chauffeur sur la durée (driverDailyFee × jours)
 
   // Frais de nettoyage (appartement uniquement, forfait unique par séjour)
   cleaningFee       Float?

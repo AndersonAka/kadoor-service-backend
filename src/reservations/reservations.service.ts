@@ -110,6 +110,32 @@ export class ReservationsService {
     return 'TIER1';
   }
 
+  /**
+   * Résout l’option chauffeur : obligatoire si driverRequired,
+   * sinon seulement si le véhicule propose withDriver et que le client l’a choisi.
+   */
+  private resolveDriverOption(
+    vehicle: { withDriver?: boolean; driverRequired?: boolean; driverDailyFee?: number; title?: string },
+    requestedHasDriver?: boolean,
+    days = 1,
+  ): { hasDriver: boolean; driverFee: number | null } {
+    if (vehicle.driverRequired) {
+      const daily = vehicle.driverDailyFee ?? 10000;
+      return { hasDriver: true, driverFee: Math.round(daily * Math.max(days, 1)) };
+    }
+    if (!vehicle.withDriver) {
+      if (requestedHasDriver) {
+        throw new BadRequestException(
+          `Le véhicule « ${vehicle.title || ''} » ne propose pas l’option chauffeur.`,
+        );
+      }
+      return { hasDriver: false, driverFee: null };
+    }
+    if (!requestedHasDriver) return { hasDriver: false, driverFee: null };
+    const daily = vehicle.driverDailyFee ?? 10000;
+    return { hasDriver: true, driverFee: Math.round(daily * Math.max(days, 1)) };
+  }
+
   private calculateDays(startDate: Date, endDate: Date): number {
     const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -160,7 +186,8 @@ export class ReservationsService {
     const days = this.calculateDays(start, end);
     const tier = this.resolveVehicleMileageTier(dto.mileagePackage);
     const mileagePackageCost = await this.computeMileageCost(tier, days, pricing);
-    const totalPrice = mileagePackageCost;
+    const driver = this.resolveDriverOption(vehicle, dto.hasDriver, days);
+    const totalPrice = mileagePackageCost + (driver.driverFee || 0);
 
     const reservation = await this.prisma.booking.create({
       data: {
@@ -174,6 +201,8 @@ export class ReservationsService {
         status: 'PENDING',
         mileagePackage: tier,
         mileagePackageCost,
+        hasDriver: driver.hasDriver,
+        driverFee: driver.driverFee,
       },
       include: {
         vehicle: true,
@@ -1036,6 +1065,7 @@ export class ReservationsService {
     const tier = this.resolveVehicleMileageTier(dto.mileagePackage);
     const mileagePackageCost = await this.computeMileageCost(tier, days, pricing);
     const priceWithMileage = mileagePackageCost;
+    const driver = this.resolveDriverOption(vehicle, dto.hasDriver, days);
 
     let totalPrice = priceWithMileage;
     let insurancePrice: number | null = null;
@@ -1047,6 +1077,8 @@ export class ReservationsService {
       insurancePrice = insurance.insurancePrice;
       insuranceDiscount = insurance.insuranceDiscount;
     }
+
+    totalPrice += driver.driverFee || 0;
 
     const promo = await this.applyPromoCode(dto.promoCode, totalPrice, 'VEHICLE', userId);
     totalPrice = promo.finalAmount;
@@ -1064,6 +1096,8 @@ export class ReservationsService {
         hasInsurance: dto.hasInsurance ?? false,
         insurancePrice,
         insuranceDiscount,
+        hasDriver: driver.hasDriver,
+        driverFee: driver.driverFee,
         mileagePackage: tier,
         mileagePackageCost,
         promoCode: promo.promoCode,

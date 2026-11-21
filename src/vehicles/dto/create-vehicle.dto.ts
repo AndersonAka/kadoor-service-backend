@@ -55,6 +55,23 @@ export class CreateVehicleDto {
   @IsString({ each: true })
   features?: string[];
 
+  /** Propose l’option chauffeur à la réservation */
+  @IsOptional()
+  @IsBoolean()
+  withDriver?: boolean;
+
+  /** Réservation uniquement avec chauffeur */
+  @IsOptional()
+  @IsBoolean()
+  driverRequired?: boolean;
+
+  /** Supplément chauffeur journalier (FCFA) */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  driverDailyFee?: number;
+
   /** Partenaire loueur propriétaire du véhicule — omis/null = géré directement par Kadoor Service */
   @IsOptional()
   @IsString()
